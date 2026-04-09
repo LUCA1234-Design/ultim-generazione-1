@@ -27,6 +27,8 @@ from config.settings import (
     MIN_AGENT_CONFIRMATIONS,
     MIN_RR,
     NON_OPTIMAL_HOUR_PENALTY,
+    TRAINING_MODE,
+    TRAINING_MIN_AGREEING_TIMEFRAMES,
 )
 
 logger = logging.getLogger("EventProcessor")
@@ -246,11 +248,12 @@ class EventProcessor:
             agent_results["confluence"] = confluence_result
             # ---- SNIPER: Require at least 2/3 TFs agreeing ----
             agreeing_tfs = confluence_result.metadata.get("agreeing_tfs", 0) if confluence_result.metadata else 0
-            if agreeing_tfs < _SNIPER_MIN_AGREEING_TIMEFRAMES:
+            _min_agreeing_tfs = TRAINING_MIN_AGREEING_TIMEFRAMES if TRAINING_MODE else _SNIPER_MIN_AGREEING_TIMEFRAMES
+            if agreeing_tfs < _min_agreeing_tfs:
                 self._skip("weak_confluence")
                 logger.info(
                     f"⛔ {symbol}/{interval} SKIP: weak_confluence "
-                    f"agreeing_tfs={agreeing_tfs}/3"
+                    f"agreeing_tfs={agreeing_tfs}/3 (min={_min_agreeing_tfs})"
                 )
                 return None
 

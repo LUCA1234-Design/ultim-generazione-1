@@ -12,6 +12,7 @@ from agents.base_agent import BaseAgent, AgentResult
 from indicators.technical import rsi, macd, adx, bollinger_bands, obv, zscore
 from indicators.smart_money import cumulative_volume_delta, liquidity_sweep
 from data import data_store
+from config.settings import TRAINING_MODE, TRAINING_TF_BIAS_MIN, SNIPER_TF_BIAS_MIN
 
 logger = logging.getLogger("ConfluenceAgent")
 
@@ -187,7 +188,8 @@ class ConfluenceAgent(BaseAgent):
         details.append(f"primary={primary_score:.2f}")
         details.append(f"opposite={opposite_score:.2f}")
 
-        agreeing = sum(1 for v in tf_scores.values() if v > 0.40)
+        _tf_bias_min = TRAINING_TF_BIAS_MIN if TRAINING_MODE else SNIPER_TF_BIAS_MIN
+        agreeing = sum(1 for v in tf_scores.values() if v > _tf_bias_min)
         total_tfs = len(tf_scores)
 
         return AgentResult(
