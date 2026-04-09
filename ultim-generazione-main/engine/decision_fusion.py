@@ -11,7 +11,12 @@ import numpy as np
 from typing import Dict, Optional, Tuple, List, Any
 
 from agents.base_agent import AgentResult
-from config.settings import FUSION_THRESHOLD_DEFAULT, FUSION_AGENT_WEIGHTS
+from config.settings import (
+    FUSION_THRESHOLD_DEFAULT,
+    FUSION_AGENT_WEIGHTS,
+    TRAINING_MODE,
+    TRAINING_MIN_DIRECTION_AGREEMENT,
+)
 
 logger = logging.getLogger("DecisionFusion")
 
@@ -181,12 +186,13 @@ class DecisionFusion:
             name for name, r in agent_results.items()
             if r is not None and r.direction == direction
         ]
+        _min_dir_agreement = TRAINING_MIN_DIRECTION_AGREEMENT if TRAINING_MODE else _SNIPER_MIN_DIRECTION_AGREEMENT
         if len(directional_agents) >= 3:
             agreement_ratio = len(agreeing_agents) / len(directional_agents)
-            if agreement_ratio < _SNIPER_MIN_DIRECTION_AGREEMENT:
+            if agreement_ratio < _min_dir_agreement:
                 reasoning.append(
                     f"SNIPER_VETO: direction_agreement={agreement_ratio:.0%} "
-                    f"({len(agreeing_agents)}/{len(directional_agents)}) — need >={_SNIPER_MIN_DIRECTION_AGREEMENT:.0%}"
+                    f"({len(agreeing_agents)}/{len(directional_agents)}) — need >={_min_dir_agreement:.0%}"
                 )
                 final_score = weighted_score / total_weight if total_weight > 0 else 0.0
                 return FusionResult(

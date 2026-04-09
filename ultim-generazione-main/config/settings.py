@@ -191,6 +191,9 @@ TRAINING_MIN_RR = 1.20
 TRAINING_NON_OPTIMAL_HOUR_PENALTY = 0.02
 TRAINING_SIGNAL_COOLDOWN_BY_TF = {"15m": 600, "1h": 1800, "4h": 3600}
 TRAINING_MAX_OPEN_POSITIONS = 5
+TRAINING_MIN_AGREEING_TIMEFRAMES = 1    # 1 TF is enough in training (vs 2 in Sniper)
+TRAINING_MIN_DIRECTION_AGREEMENT = 0.40  # less strict in training (vs 0.60 in Sniper)
+TRAINING_TF_BIAS_MIN = 0.25             # bias threshold for counting agreeing TFs in training
 
 # Sniper Mode values (restored after training completes)
 SNIPER_FUSION_THRESHOLD = 0.55
@@ -200,6 +203,9 @@ SNIPER_MIN_RR = 1.60
 SNIPER_NON_OPTIMAL_HOUR_PENALTY = 0.05
 SNIPER_SIGNAL_COOLDOWN_BY_TF = {"15m": 900, "1h": 3600, "4h": 7200}
 SNIPER_MAX_OPEN_POSITIONS = 3
+SNIPER_MIN_AGREEING_TIMEFRAMES = 2
+SNIPER_MIN_DIRECTION_AGREEMENT = 0.60
+SNIPER_TF_BIAS_MIN = 0.40               # bias threshold for counting agreeing TFs in sniper
 
 # Apply training overrides automatically when TRAINING_MODE is active
 if TRAINING_MODE:
