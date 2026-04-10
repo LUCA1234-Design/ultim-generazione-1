@@ -283,6 +283,15 @@ class DecisionFusion:
 
         return result
 
+    def get_threshold_history(self) -> list:
+        """Return a copy of the threshold history for persistence."""
+        return list(self._threshold_history)
+
+    def set_threshold_history(self, history: list) -> None:
+        """Restore threshold history from persisted data."""
+        if isinstance(history, list):
+            self._threshold_history = [float(x) for x in history[-50:]]
+
     def get_decision_log(self, limit: int = 20) -> List[Dict[str, Any]]:
         """Return recent decisions as dicts."""
         return [r.to_dict() for r in self._decision_log[-limit:]]

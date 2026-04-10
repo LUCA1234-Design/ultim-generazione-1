@@ -32,7 +32,7 @@ logger = logging.getLogger("EvolutionEngine")
 
 # Tuning constants
 _TUNE_INTERVAL_SEC = 1800   # 30 min between auto-tune runs
-_SAVE_INTERVAL_SEC = 900    # 15 min between state saves
+_SAVE_INTERVAL_SEC = 300    # 5 min between state saves
 _MIN_COMPLETED = 10         # minimum completed trades before tuning
 _THRESHOLD_STEP_UP = 0.02   # raise threshold by this when win-rate is too low
 _THRESHOLD_STEP_DOWN = 0.01 # lower threshold by this when win-rate is excellent
@@ -120,6 +120,15 @@ class EvolutionEngine:
         except Exception as exc:
             logger.debug(f"EvolutionEngine.startup strategy trade_count restore error: {exc}")
 
+        # Restore threshold history for adaptive calibration
+        try:
+            saved_history = experience_db.get_param("fusion_threshold_history")
+            if saved_history and isinstance(saved_history, list):
+                self._fusion.set_threshold_history(saved_history)
+                logger.info(f"🔧 EvolutionEngine: restored threshold_history ({len(saved_history)} entries)")
+        except Exception as exc:
+            logger.debug(f"EvolutionEngine.startup threshold_history restore error: {exc}")
+
     def on_trade_close(
         self,
         closed_position: Any,
@@ -177,6 +186,26 @@ class EvolutionEngine:
             except Exception as exc:
                 logger.error(f"EvolutionEngine pattern_threshold error: {exc}")
 
+            # Immediate state save after every trade close (no waiting for tick)
+            try:
+                experience_db.save_param(
+                    "fusion_threshold", self._fusion._threshold, "trade_close"
+                )
+                experience_db.save_param(
+                    "fusion_threshold_history",
+                    self._fusion.get_threshold_history(),
+                    "trade_close",
+                )
+                experience_db.save_param(
+                    "strategy_evolver_trade_count",
+                    self._strategy_evolver.trade_count,
+                    "trade_close",
+                )
+                # Save MetaAgent state immediately after every trade
+                self._meta.save_state()
+            except Exception as exc:
+                logger.debug(f"on_trade_close immediate save error: {exc}")
+
     def tick(self) -> None:
         """Periodic evolution step — call every ~30 minutes from main loop.
 
@@ -225,6 +254,11 @@ class EvolutionEngine:
             self._meta.save_state()
             experience_db.save_param(
                 "fusion_threshold", self._fusion._threshold, "shutdown"
+            )
+            experience_db.save_param(
+                "fusion_threshold_history",
+                self._fusion.get_threshold_history(),
+                "shutdown",
             )
             experience_db.save_param(
                 "confluence_tf_performance",
@@ -321,6 +355,15 @@ class EvolutionEngine:
             experience_db.save_param(
                 "fusion_threshold", self._fusion._threshold, "periodic"
             )
+            # Save threshold history
+            try:
+                experience_db.save_param(
+                    "fusion_threshold_history",
+                    self._fusion.get_threshold_history(),
+                    "periodic",
+                )
+            except Exception as exc:
+                logger.debug(f"_save_state threshold_history error: {exc}")
             experience_db.save_param(
                 "confluence_tf_performance",
                 self._confluence_adapter.dump_state(),
