@@ -629,6 +629,24 @@ def main():
         logger.info("🚀 V17 SYSTEM OPERATIONAL — Press Ctrl+C to stop")
         logger.info("=" * 60)
 
+        # ---- Signal handlers for graceful shutdown on SIGTERM/SIGINT ----
+        import signal as _signal
+
+        def _graceful_shutdown(signum, frame):
+            logger.info(f"⚡ Signal {signum} received — saving state before exit...")
+            try:
+                evolution_engine.shutdown()
+            except Exception as _se:
+                logger.error(f"Graceful shutdown save error: {_se}")
+            try:
+                send_message("⏹️ V17 — shutdown signal received, state saved.")
+            except Exception:
+                pass
+            sys.exit(0)
+
+        _signal.signal(_signal.SIGTERM, _graceful_shutdown)
+        _signal.signal(_signal.SIGINT, _graceful_shutdown)
+
         # ---- Main loop ----
         global _sniper_mode_active
         _sniper_mode_active = not TRAINING_MODE  # True from the start if training is disabled
