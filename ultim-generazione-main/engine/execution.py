@@ -339,10 +339,10 @@ class ExecutionEngine:
         Args:
             pos: Position being partially reduced at TP1.
             close_size: Quantity closed at TP1 (50% of current position size).
-            close_pnl: Realized PnL for the closed quantity.
+            close_pnl: Realized PnL for the closed quantity based on trigger price.
         """
-        pos.realized_pnl += close_pnl
         self._roll_day_if_needed()
+        pos.realized_pnl += close_pnl
         self._balance += close_pnl
         self._total_pnl += close_pnl
         self._daily_pnl += close_pnl
