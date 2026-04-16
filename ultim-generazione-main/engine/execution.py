@@ -30,8 +30,9 @@ if TRAINING_MODE:
     _MAX_POSITION_AGE = {"15m": 3600, "1h": 7200, "4h": 14400}  # 1h, 2h, 4h
 else:
     _MAX_POSITION_AGE = {"15m": 86400, "1h": 172800, "4h": 259200}  # 1d, 2d, 3d
-# Trailing stop ratio: fraction of TP1 distance to trail after TP1 is hit
-_TRAIL_STOP_RATIO = 0.5
+# Dynamic trailing-stop percentages (distance from current price)
+_TRAIL_PCT_AT_TP1 = 0.006
+_TRAIL_PCT_AT_TP2 = 0.002
 
 
 # ---------------------------------------------------------------------------
@@ -58,6 +59,7 @@ class Position:
     status: str = "open"   # "open" | "closed" | "sl_hit" | "tp1_hit" | "tp2_hit"
     tp1_hit: bool = False
     tp2_hit: bool = False
+    realized_pnl: float = 0.0
     decision_id: str = ""
     paper: bool = True
 
@@ -83,6 +85,7 @@ class Position:
             "close_price": self.close_price,
             "pnl": self.pnl,
             "status": self.status,
+            "realized_pnl": self.realized_pnl,
             "paper": self.paper,
         }
 
@@ -244,16 +247,29 @@ class ExecutionEngine:
                 if current_price <= pos.sl:
                     to_close.append((pos_id, current_price, "sl_hit"))
                 elif not pos.tp1_hit and current_price >= pos.tp1:
+                    close_size = pos.size * 0.5
+                    close_pnl = (current_price - pos.entry_price) * close_size
+                    pos.realized_pnl += close_pnl
+                    self._roll_day_if_needed()
+                    self._balance += close_pnl
+                    self._total_pnl += close_pnl
+                    self._daily_pnl += close_pnl
+                    pos.size -= close_size
                     pos.tp1_hit = True
-                    # Move SL to entry (breakeven)
                     pos.sl = pos.entry_price
-                    logger.info(f"🎯 TP1 hit [{pos_id}] {pos.symbol} — SL moved to entry")
+                    logger.info(
+                        f"🎯 TP1 hit [{pos_id}] {pos.symbol} — 50% closed for profit "
+                        f"(PnL={close_pnl:+.4f}), SL to breakeven"
+                    )
+                    if not self.paper_trading:
+                        place_futures_order(
+                            pos.symbol, "SELL", "MARKET", close_size, reduce_only=True
+                        )
                 elif pos.tp1_hit and not pos.tp2_hit and current_price >= pos.tp2:
                     pos.tp2_hit = True
                     to_close.append((pos_id, current_price, "tp2_hit"))
                 elif pos.tp1_hit and not pos.tp2_hit:
-                    # Trailing stop: trail at configured ratio of TP1 distance
-                    trail_distance = abs(pos.tp1 - pos.entry_price) * _TRAIL_STOP_RATIO
+                    trail_distance = self._dynamic_trail_distance(pos, current_price)
                     new_sl = current_price - trail_distance
                     if new_sl > pos.sl:
                         pos.sl = new_sl
@@ -262,15 +278,29 @@ class ExecutionEngine:
                 if current_price >= pos.sl:
                     to_close.append((pos_id, current_price, "sl_hit"))
                 elif not pos.tp1_hit and current_price <= pos.tp1:
+                    close_size = pos.size * 0.5
+                    close_pnl = (pos.entry_price - current_price) * close_size
+                    pos.realized_pnl += close_pnl
+                    self._roll_day_if_needed()
+                    self._balance += close_pnl
+                    self._total_pnl += close_pnl
+                    self._daily_pnl += close_pnl
+                    pos.size -= close_size
                     pos.tp1_hit = True
                     pos.sl = pos.entry_price
-                    logger.info(f"🎯 TP1 hit [{pos_id}] {pos.symbol} — SL moved to entry")
+                    logger.info(
+                        f"🎯 TP1 hit [{pos_id}] {pos.symbol} — 50% closed for profit "
+                        f"(PnL={close_pnl:+.4f}), SL to breakeven"
+                    )
+                    if not self.paper_trading:
+                        place_futures_order(
+                            pos.symbol, "BUY", "MARKET", close_size, reduce_only=True
+                        )
                 elif pos.tp1_hit and not pos.tp2_hit and current_price <= pos.tp2:
                     pos.tp2_hit = True
                     to_close.append((pos_id, current_price, "tp2_hit"))
                 elif pos.tp1_hit and not pos.tp2_hit:
-                    # Trailing stop: trail at configured ratio of TP1 distance
-                    trail_distance = abs(pos.tp1 - pos.entry_price) * _TRAIL_STOP_RATIO
+                    trail_distance = self._dynamic_trail_distance(pos, current_price)
                     new_sl = current_price + trail_distance
                     if new_sl < pos.sl:
                         pos.sl = new_sl
@@ -282,6 +312,21 @@ class ExecutionEngine:
                 closed_positions.append(closed)
 
         return closed_positions
+
+    def _dynamic_trail_distance(self, pos: Position, current_price: float) -> float:
+        """Return dynamic trailing distance that tightens from TP1 to TP2."""
+        move_total = abs(pos.tp2 - pos.tp1)
+        if move_total <= 0:
+            trail_pct = _TRAIL_PCT_AT_TP2
+        else:
+            if pos.direction == "long":
+                progress = max(0.0, min(1.0, (current_price - pos.tp1) / move_total))
+            else:
+                progress = max(0.0, min(1.0, (pos.tp1 - current_price) / move_total))
+            trail_pct = _TRAIL_PCT_AT_TP1 + (
+                (_TRAIL_PCT_AT_TP2 - _TRAIL_PCT_AT_TP1) * progress
+            )
+        return max(current_price * trail_pct, 1e-9)
 
     # ------------------------------------------------------------------
     # Stats
