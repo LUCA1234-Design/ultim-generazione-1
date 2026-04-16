@@ -304,7 +304,22 @@ class EventProcessor:
             return None
 
         # ---- Fuse decisions ----
-        fusion_result = self.fusion.fuse(symbol, interval, agent_results, regime=current_regime)
+        fusion_result = None
+        if hasattr(self.fusion, "evaluate"):
+            fusion_result = self.fusion.evaluate(
+                symbol,
+                interval,
+                df,
+                agent_results=agent_results,
+                regime=current_regime,
+            )
+        if not isinstance(fusion_result, FusionResult):
+            fusion_result = self.fusion.fuse(
+                symbol,
+                interval,
+                agent_results,
+                regime=current_regime,
+            )
 
         if fusion_result.decision == DECISION_HOLD:
             self._skip("hold_decision")

@@ -11,6 +11,7 @@ import numpy as np
 from typing import Dict, Optional, Tuple, List, Any
 
 from agents.base_agent import AgentResult
+from agents.liquidity_agent import LiquidityAgent
 from config.settings import (
     FUSION_THRESHOLD_DEFAULT,
     FUSION_AGENT_WEIGHTS,
@@ -87,6 +88,8 @@ class DecisionFusion:
     def __init__(self, agent_weights: Optional[Dict[str, float]] = None,
                  threshold: float = FUSION_THRESHOLD_DEFAULT):
         self._weights = dict(agent_weights or FUSION_AGENT_WEIGHTS)
+        self._weights.setdefault("liquidity", 1.0)
+        self.liquidity_agent = LiquidityAgent()
         self._threshold = threshold
         self._threshold_history: List[float] = []
         self._decision_log: List[FusionResult] = []
@@ -123,6 +126,44 @@ class DecisionFusion:
     # ------------------------------------------------------------------
     # Fusion
     # ------------------------------------------------------------------
+
+    def evaluate(
+        self,
+        symbol: str,
+        interval: str,
+        df,
+        agent_results: Optional[Dict[str, AgentResult]] = None,
+        regime: str = "unknown",
+    ) -> FusionResult:
+        """Run LiquidityAgent and fuse all available agent results."""
+        results = agent_results if agent_results is not None else {}
+
+        liquidity = self.liquidity_agent.analyze(symbol, interval, df)
+        if isinstance(liquidity, dict):
+            signal = int(np.sign(float(liquidity.get("signal", 0))))
+            confidence = float(np.clip(liquidity.get("confidence", 0.0), 0.0, 1.0))
+            details_payload = liquidity.get("details", {}) or {}
+            if isinstance(details_payload, dict):
+                details = [f"{k}={v:.4f}" if isinstance(v, (int, float, np.floating)) else f"{k}={v}"
+                           for k, v in details_payload.items()]
+            elif isinstance(details_payload, list):
+                details = [str(x) for x in details_payload]
+            else:
+                details = [str(details_payload)]
+
+            direction = "long" if signal > 0 else "short" if signal < 0 else "neutral"
+            results["liquidity"] = AgentResult(
+                agent_name="liquidity",
+                symbol=symbol,
+                interval=interval,
+                score=confidence,
+                direction=direction,
+                confidence=confidence,
+                details=details,
+                metadata={"signal": signal, "details": details_payload},
+            )
+
+        return self.fuse(symbol, interval, results, regime=regime)
 
     def fuse(self, symbol: str, interval: str,
              agent_results: Dict[str, AgentResult],

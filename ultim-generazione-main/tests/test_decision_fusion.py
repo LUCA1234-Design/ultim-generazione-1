@@ -102,10 +102,21 @@ class TestDecisionFusion:
         self.fusion.update_weight("pattern", -100)
         assert self.fusion._weights["pattern"] >= 0.01
 
+    def test_liquidity_weight_is_initialized(self):
+        assert "liquidity" in self.fusion._weights
+
     def test_update_weights_bulk(self):
         self.fusion.update_weights({"pattern": 2.0, "regime": 1.5})
         assert self.fusion._weights["pattern"] == 2.0
         assert self.fusion._weights["regime"] == 1.5
+
+    def test_evaluate_includes_liquidity_in_results(self, ohlcv_df):
+        results = make_results(score=0.70, direction="long")
+        fusion_result = self.fusion.evaluate("BTCUSDT", "1h", ohlcv_df, agent_results=results)
+
+        assert isinstance(fusion_result, FusionResult)
+        assert "liquidity" in results
+        assert "liquidity" in fusion_result.agent_results
 
     # ------------------------------------------------------------------
     # Threshold adaptation

@@ -7,6 +7,7 @@ from agents.confluence_agent import ConfluenceAgent
 from agents.risk_agent import RiskAgent
 from agents.strategy_agent import StrategyAgent
 from agents.mtf_agent import MTFAgent
+from agents.liquidity_agent import LiquidityAgent
 
 __all__ = [
     "BaseAgent",
@@ -18,4 +19,5 @@ __all__ = [
     "RiskAgent",
     "StrategyAgent",
     "MTFAgent",
+    "LiquidityAgent",
 ]
