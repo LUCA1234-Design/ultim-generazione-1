@@ -33,6 +33,7 @@ else:
 # Dynamic trailing-stop percentages (distance from current price)
 _TRAIL_PCT_AT_TP1 = 0.006
 _TRAIL_PCT_AT_TP2 = 0.002
+_MIN_TRAIL_DISTANCE = 1e-9
 
 
 # ---------------------------------------------------------------------------
@@ -249,12 +250,7 @@ class ExecutionEngine:
                 elif not pos.tp1_hit and current_price >= pos.tp1:
                     close_size = pos.size * 0.5
                     close_pnl = (current_price - pos.entry_price) * close_size
-                    pos.realized_pnl += close_pnl
-                    self._roll_day_if_needed()
-                    self._balance += close_pnl
-                    self._total_pnl += close_pnl
-                    self._daily_pnl += close_pnl
-                    pos.size -= close_size
+                    self._execute_tp1_scale_out(pos, close_size, close_pnl)
                     pos.tp1_hit = True
                     pos.sl = pos.entry_price
                     logger.info(
@@ -280,12 +276,7 @@ class ExecutionEngine:
                 elif not pos.tp1_hit and current_price <= pos.tp1:
                     close_size = pos.size * 0.5
                     close_pnl = (pos.entry_price - current_price) * close_size
-                    pos.realized_pnl += close_pnl
-                    self._roll_day_if_needed()
-                    self._balance += close_pnl
-                    self._total_pnl += close_pnl
-                    self._daily_pnl += close_pnl
-                    pos.size -= close_size
+                    self._execute_tp1_scale_out(pos, close_size, close_pnl)
                     pos.tp1_hit = True
                     pos.sl = pos.entry_price
                     logger.info(
@@ -326,7 +317,16 @@ class ExecutionEngine:
             trail_pct = _TRAIL_PCT_AT_TP1 + (
                 (_TRAIL_PCT_AT_TP2 - _TRAIL_PCT_AT_TP1) * progress
             )
-        return max(current_price * trail_pct, 1e-9)
+        return max(current_price * trail_pct, _MIN_TRAIL_DISTANCE)
+
+    def _execute_tp1_scale_out(self, pos: Position, close_size: float, close_pnl: float) -> None:
+        """Apply TP1 partial close accounting and reduce open size."""
+        pos.realized_pnl += close_pnl
+        self._roll_day_if_needed()
+        self._balance += close_pnl
+        self._total_pnl += close_pnl
+        self._daily_pnl += close_pnl
+        pos.size -= close_size
 
     # ------------------------------------------------------------------
     # Stats
