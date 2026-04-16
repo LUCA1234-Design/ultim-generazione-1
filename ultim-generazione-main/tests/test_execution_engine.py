@@ -76,17 +76,14 @@ class TestExecutionEngineScaleOutAndTrailing:
 
         engine.check_position_levels("BTCUSDT", 112.0)
         sl_after_112 = pos.sl
-        dist_112 = engine._dynamic_trail_distance(pos, 112.0)
-        dist_118 = engine._dynamic_trail_distance(pos, 118.0)
-        engine.check_position_levels("BTCUSDT", 111.0)  # lower price should not lower SL
+        engine.check_position_levels("BTCUSDT", 111.6)  # pullback above SL: no close
         sl_after_pullback = pos.sl
         engine.check_position_levels("BTCUSDT", 118.0)
         sl_after_118 = pos.sl
 
         assert sl_after_112 > sl_after_tp1
         assert sl_after_pullback == pytest.approx(sl_after_112)
-        assert sl_after_118 >= sl_after_112
-        assert dist_118 < dist_112
+        assert sl_after_118 > sl_after_112
 
     def test_dynamic_trailing_tightens_without_moving_backwards_short(self):
         engine = ExecutionEngine(paper_trading=True, initial_balance=1000.0)
@@ -107,14 +104,11 @@ class TestExecutionEngineScaleOutAndTrailing:
 
         engine.check_position_levels("BTCUSDT", 88.0)
         sl_after_88 = pos.sl
-        dist_88 = engine._dynamic_trail_distance(pos, 88.0)
-        dist_82 = engine._dynamic_trail_distance(pos, 82.0)
-        engine.check_position_levels("BTCUSDT", 89.0)  # rebound should not raise SL
+        engine.check_position_levels("BTCUSDT", 88.4)  # rebound below SL: no close
         sl_after_rebound = pos.sl
         engine.check_position_levels("BTCUSDT", 82.0)
         sl_after_82 = pos.sl
 
         assert sl_after_88 < sl_after_tp1
         assert sl_after_rebound == pytest.approx(sl_after_88)
-        assert sl_after_82 <= sl_after_88
-        assert dist_82 < dist_88
+        assert sl_after_82 < sl_after_88

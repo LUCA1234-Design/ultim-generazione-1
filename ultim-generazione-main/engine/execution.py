@@ -305,7 +305,17 @@ class ExecutionEngine:
         return closed_positions
 
     def _dynamic_trail_distance(self, pos: Position, current_price: float) -> float:
-        """Return dynamic trailing distance that tightens from TP1 to TP2."""
+        """Return trailing distance for post-TP1 management.
+
+        Args:
+            pos: Active position with TP1/TP2 and direction metadata.
+            current_price: Latest market price for the position symbol.
+
+        Returns:
+            Positive trailing distance (price units). The distance tightens
+            linearly from `_TRAIL_PCT_AT_TP1` to `_TRAIL_PCT_AT_TP2` as price
+            progresses from TP1 toward TP2.
+        """
         move_total = abs(pos.tp2 - pos.tp1)
         if move_total <= 0:
             logger.warning(
@@ -324,7 +334,13 @@ class ExecutionEngine:
         return max(current_price * trail_pct, _MIN_TRAIL_DISTANCE)
 
     def _execute_tp1_scale_out(self, pos: Position, close_size: float, close_pnl: float) -> None:
-        """Apply TP1 partial close accounting and reduce open size."""
+        """Apply TP1 partial close accounting and reduce open size.
+
+        Args:
+            pos: Position being partially reduced at TP1.
+            close_size: Quantity closed at TP1 (50% of current position size).
+            close_pnl: Realized PnL for the closed quantity.
+        """
         pos.realized_pnl += close_pnl
         self._roll_day_if_needed()
         self._balance += close_pnl
