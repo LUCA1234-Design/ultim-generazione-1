@@ -320,7 +320,7 @@ class ExecutionEngine:
             progresses from TP1 toward TP2.
         """
         move_total = abs(pos.tp2 - pos.tp1)
-        if move_total <= 0:
+        if move_total == 0:
             logger.warning(
                 f"Invalid TP configuration for dynamic trailing [{pos.position_id}] "
                 f"{pos.symbol}: tp1={pos.tp1:.4f}, tp2={pos.tp2:.4f}"
