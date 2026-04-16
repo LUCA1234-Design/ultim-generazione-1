@@ -34,6 +34,8 @@ else:
 _TRAIL_PCT_AT_TP1 = 0.006
 _TRAIL_PCT_AT_TP2 = 0.002
 _MIN_TRAIL_DISTANCE = 1e-9
+if _TRAIL_PCT_AT_TP2 >= _TRAIL_PCT_AT_TP1:
+    raise ValueError("Dynamic trailing requires _TRAIL_PCT_AT_TP2 < _TRAIL_PCT_AT_TP1")
 
 
 # ---------------------------------------------------------------------------
@@ -227,6 +229,7 @@ class ExecutionEngine:
 
     def check_position_levels(self, symbol: str, current_price: float) -> List[Position]:
         """Check all open positions for SL/TP hits and return closed positions."""
+        self._roll_day_if_needed()
         to_close: List[Tuple[str, float, str]] = []
         closed_positions: List[Position] = []
 
@@ -341,7 +344,6 @@ class ExecutionEngine:
             close_size: Quantity closed at TP1 (50% of current position size).
             close_pnl: Realized PnL for the closed quantity based on trigger price.
         """
-        self._roll_day_if_needed()
         pos.realized_pnl += close_pnl
         self._balance += close_pnl
         self._total_pnl += close_pnl
