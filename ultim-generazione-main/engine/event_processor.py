@@ -32,6 +32,7 @@ from config.settings import (
 )
 
 logger = logging.getLogger("EventProcessor")
+_MIN_CORRELATION_POINTS = 20
 
 
 class EventProcessor:
@@ -110,42 +111,66 @@ class EventProcessor:
     # Correlation guard
     # ------------------------------------------------------------------
 
-    def _correlation_check(self, symbol: str, interval: str) -> float:
-        """Return average correlation between symbol and all open positions.
+    def _correlation_check(
+        self,
+        symbol: str,
+        interval: str,
+        direction: str,
+        threshold: float = 0.75,
+        lookback: int = 100,
+    ) -> Optional[tuple[str, float]]:
+        """Return the first highly-correlated open symbol in the same direction.
 
-        Returns 0.0 if no open positions or insufficient data.
+        Returns ``None`` when there is no blocking correlation.
+        When blocked, returns ``(open_symbol, correlation_value)``.
         """
         open_pos = self.execution.get_open_positions()
         if not open_pos:
-            return 0.0
+            return None
 
         df_new = data_store.get_df(symbol, interval)
-        if df_new is None or len(df_new) < 20:
-            return 0.0
+        if df_new is None or df_new.empty or "close" not in df_new.columns:
+            return None
 
-        import numpy as np
-        correlations = []
-        for pos in open_pos:
+        closes_new = df_new["close"].dropna()
+        if closes_new.empty:
+            return None
+        closes_new = closes_new.iloc[-lookback:]
+
+        direction = str(direction).lower()
+        same_direction_positions = [
+            pos for pos in open_pos if str(getattr(pos, "direction", "")).lower() == direction
+        ]
+        if not same_direction_positions:
+            return None
+
+        import math
+        for pos in same_direction_positions:
             df_existing = data_store.get_df(pos.symbol, interval)
-            if df_existing is None or len(df_existing) < 20:
+            if df_existing is None or df_existing.empty or "close" not in df_existing.columns:
                 continue
             try:
-                returns_new = df_new["close"].iloc[-21:].pct_change().dropna()
-                returns_existing = df_existing["close"].iloc[-21:].pct_change().dropna()
-                min_len = min(len(returns_new), len(returns_existing))
-                if min_len < 10:
+                closes_existing = df_existing["close"].dropna()
+                if closes_existing.empty:
                     continue
-                corr = float(
-                    np.corrcoef(
-                        returns_new.iloc[-min_len:],
-                        returns_existing.iloc[-min_len:],
-                    )[0, 1]
-                )
-                correlations.append(corr)
+                closes_existing = closes_existing.iloc[-lookback:]
+
+                # Pearson correlation from very short series is unstable.
+                min_len = min(len(closes_new), len(closes_existing))
+                if min_len < _MIN_CORRELATION_POINTS:
+                    continue
+
+                corr = closes_new.iloc[-min_len:].corr(closes_existing.iloc[-min_len:])
+                corr = float(corr)
+                if math.isnan(corr):
+                    continue
+                if corr > threshold:
+                    # Early exit on first blocking pair to keep pre-trade latency low.
+                    return pos.symbol, corr
             except Exception:
                 continue
 
-        return float(np.mean(correlations)) if correlations else 0.0
+        return None
 
     # ------------------------------------------------------------------
     # Main event handler
@@ -201,13 +226,6 @@ class EventProcessor:
         if df is None or len(df) < 50:
             self._skip("insufficient_data")
             logger.debug(f"⛔ {symbol}/{interval} SKIP: insufficient_data | df_len={len(df) if df is not None else 0}")
-            return None
-
-        # Guard: correlation with existing positions
-        avg_correlation = self._correlation_check(symbol, interval)
-        if avg_correlation > 0.80:
-            self._skip("high_correlation")
-            logger.info(f"⛔ {symbol}/{interval} SKIP: high_correlation={avg_correlation:.2f}")
             return None
 
         # ---- Run agents ----
@@ -348,6 +366,16 @@ class EventProcessor:
                 f"⛔ {symbol}/{interval} SKIP: low_fusion_score (non-optimal hour) | "
                 f"agents={len(agent_results)} fusion={fusion_result.final_score:.3f} "
                 f"threshold={MIN_FUSION_SCORE + NON_OPTIMAL_HOUR_PENALTY:.3f}"
+            )
+            return None
+
+        blocked_by = self._correlation_check(symbol, interval, fusion_result.decision)
+        if blocked_by is not None:
+            blocked_symbol, corr = blocked_by
+            self._skip("high_correlation")
+            logger.warning(
+                f"Trade blocked for {symbol} due to high correlation ({corr:.2f}) "
+                f"with open position {blocked_symbol}"
             )
             return None
 
