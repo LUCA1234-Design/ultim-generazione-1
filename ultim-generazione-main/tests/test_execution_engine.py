@@ -7,7 +7,7 @@ from engine.execution import ExecutionEngine
 
 
 class TestExecutionEngineScaleOutAndTrailing:
-    def test_tp1_scale_out_realises_pnl_and_moves_sl_to_breakeven_long(self):
+    def test_tp1_scale_out_realizes_pnl_and_moves_sl_to_breakeven_long(self):
         engine = ExecutionEngine(paper_trading=True, initial_balance=1000.0)
         pos = engine.open_position(
             symbol="BTCUSDT",
@@ -32,7 +32,7 @@ class TestExecutionEngineScaleOutAndTrailing:
         assert pos.size == pytest.approx(1.0)
         assert pos.realized_pnl == pytest.approx(10.0)
 
-    def test_tp1_scale_out_realises_pnl_and_moves_sl_to_breakeven_short(self):
+    def test_tp1_scale_out_realizes_pnl_and_moves_sl_to_breakeven_short(self):
         engine = ExecutionEngine(paper_trading=True, initial_balance=1000.0)
         pos = engine.open_position(
             symbol="BTCUSDT",

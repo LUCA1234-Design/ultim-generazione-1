@@ -308,6 +308,10 @@ class ExecutionEngine:
         """Return dynamic trailing distance that tightens from TP1 to TP2."""
         move_total = abs(pos.tp2 - pos.tp1)
         if move_total <= 0:
+            logger.warning(
+                f"Invalid TP configuration for dynamic trailing [{pos.position_id}] "
+                f"{pos.symbol}: tp1={pos.tp1:.4f}, tp2={pos.tp2:.4f}"
+            )
             trail_pct = _TRAIL_PCT_AT_TP2
         else:
             if pos.direction == "long":
