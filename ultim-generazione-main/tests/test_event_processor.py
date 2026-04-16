@@ -143,3 +143,51 @@ def test_on_candle_close_allows_trade_when_correlation_data_is_missing_or_too_sh
 
     assert result is not None
     execution.open_position.assert_called_once()
+
+
+def test_correlation_check_does_not_block_at_exact_threshold(monkeypatch):
+    execution = MagicMock()
+    execution.get_open_positions.return_value = [SimpleNamespace(symbol="ETHUSDT", direction="long")]
+    execution.is_risk_blocked.return_value = (False, "")
+
+    fusion = MagicMock()
+    fusion._threshold = 0.5
+    processor = _make_processor(execution, fusion)
+
+    close_data = pd.DataFrame({"close": pd.Series(range(1, 121), dtype=float)})
+    frames = {
+        ("SOLUSDT", "1h"): close_data,
+        ("ETHUSDT", "1h"): close_data,
+    }
+
+    monkeypatch.setattr(
+        "engine.event_processor.data_store.get_df",
+        lambda symbol, interval: frames.get((symbol, interval)),
+    )
+
+    threshold = close_data["close"].corr(close_data["close"])
+    blocked = processor._correlation_check("SOLUSDT", "1h", "long", threshold=threshold)
+    assert blocked is None
+
+
+def test_correlation_check_ignores_when_new_symbol_data_is_too_short(monkeypatch):
+    execution = MagicMock()
+    execution.get_open_positions.return_value = [SimpleNamespace(symbol="ETHUSDT", direction="long")]
+    execution.is_risk_blocked.return_value = (False, "")
+
+    fusion = MagicMock()
+    fusion._threshold = 0.5
+    processor = _make_processor(execution, fusion)
+
+    frames = {
+        ("SOLUSDT", "1h"): pd.DataFrame({"close": pd.Series([1.0, 2.0, 3.0])}),
+        ("ETHUSDT", "1h"): pd.DataFrame({"close": pd.Series(range(1, 121), dtype=float)}),
+    }
+
+    monkeypatch.setattr(
+        "engine.event_processor.data_store.get_df",
+        lambda symbol, interval: frames.get((symbol, interval)),
+    )
+
+    blocked = processor._correlation_check("SOLUSDT", "1h", "long")
+    assert blocked is None

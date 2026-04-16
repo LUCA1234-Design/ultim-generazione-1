@@ -32,6 +32,7 @@ from config.settings import (
 )
 
 logger = logging.getLogger("EventProcessor")
+_MIN_CORRELATION_POINTS = 20
 
 
 class EventProcessor:
@@ -121,6 +122,7 @@ class EventProcessor:
         """Return the first highly-correlated open symbol in the same direction.
 
         Returns ``None`` when there is no blocking correlation.
+        When blocked, returns ``(open_symbol, correlation_value)``.
         """
         open_pos = self.execution.get_open_positions()
         if not open_pos:
@@ -135,9 +137,9 @@ class EventProcessor:
             return None
         closes_new = closes_new.iloc[-lookback:]
 
+        direction = str(direction).lower()
         same_direction_positions = [
-            pos for pos in open_pos
-            if str(getattr(pos, "direction", "")).lower() == str(direction).lower()
+            pos for pos in open_pos if str(getattr(pos, "direction", "")).lower() == direction
         ]
         if not same_direction_positions:
             return None
@@ -153,17 +155,17 @@ class EventProcessor:
                     continue
                 closes_existing = closes_existing.iloc[-lookback:]
 
+                # Pearson correlation from very short series is unstable.
                 min_len = min(len(closes_new), len(closes_existing))
-                if min_len < 2:
+                if min_len < _MIN_CORRELATION_POINTS:
                     continue
 
                 corr = closes_new.iloc[-min_len:].corr(closes_existing.iloc[-min_len:])
-                if corr is None:
-                    continue
                 corr = float(corr)
                 if math.isnan(corr):
                     continue
                 if corr > threshold:
+                    # Early exit on first blocking pair to keep pre-trade latency low.
                     return pos.symbol, corr
             except Exception:
                 continue
