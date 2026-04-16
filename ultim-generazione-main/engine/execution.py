@@ -19,13 +19,17 @@ from config.settings import (
     MAX_DAILY_LOSS_USDT,
     MAX_DAILY_LOSS_PCT,
     MAX_CONSECUTIVE_LOSSES,
+    TRAINING_MODE,
 )
 from data.binance_client import place_futures_order
 
 logger = logging.getLogger("Execution")
 
 # Maximum age per interval before a position is force-closed (in seconds)
-_MAX_POSITION_AGE = {"15m": 86400, "1h": 172800, "4h": 259200}  # 1d, 2d, 3d
+if TRAINING_MODE:
+    _MAX_POSITION_AGE = {"15m": 3600, "1h": 7200, "4h": 14400}  # 1h, 2h, 4h
+else:
+    _MAX_POSITION_AGE = {"15m": 86400, "1h": 172800, "4h": 259200}  # 1d, 2d, 3d
 # Trailing stop ratio: fraction of TP1 distance to trail after TP1 is hit
 _TRAIL_STOP_RATIO = 0.5
 
