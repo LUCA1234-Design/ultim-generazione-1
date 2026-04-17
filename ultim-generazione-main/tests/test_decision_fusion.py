@@ -23,6 +23,24 @@ def make_results(score=0.65, direction="long", confidence=0.8):
     }
 
 
+class DummyMemoryManager:
+    def __init__(self):
+        self.scores = []
+        self.fusions = []
+
+    def set_agent_score(self, symbol, timeframe, agent_name, score):
+        self.scores.append((symbol, timeframe, agent_name, score))
+
+    def get_agent_scores(self, symbol, timeframe):
+        return {}
+
+    def store_fusion_result(self, symbol, timeframe, result_dict):
+        self.fusions.append((symbol, timeframe, result_dict))
+
+    def get_recent_fusion(self, symbol, timeframe):
+        return None
+
+
 # ---------------------------------------------------------------------------
 # Tests
 # ---------------------------------------------------------------------------
@@ -157,3 +175,15 @@ class TestDecisionFusion:
         assert "final_score" in d
         assert "reasoning" in d
         assert "threshold" in d
+
+    def test_fuse_persists_scores_and_fusion_to_memory_manager(self):
+        memory = DummyMemoryManager()
+        fusion = DecisionFusion(threshold=0.55, memory_manager=memory)
+        result = fusion.fuse("BTCUSDT", "1h", make_results(score=0.7))
+
+        assert len(memory.scores) == 3
+        assert len(memory.fusions) == 1
+        stored = memory.fusions[0][2]
+        assert stored["symbol"] == "BTCUSDT"
+        assert stored["interval"] == "1h"
+        assert stored["decision"] == result.decision

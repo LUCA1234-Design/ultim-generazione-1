@@ -12,6 +12,7 @@ from typing import Dict, Optional, Tuple, List, Any
 
 from agents.base_agent import AgentResult
 from agents.liquidity_agent import LiquidityAgent
+from engine.memory_manager import RedisMemoryManager
 from config.settings import (
     FUSION_THRESHOLD_DEFAULT,
     FUSION_AGENT_WEIGHTS,
@@ -84,15 +85,23 @@ class FusionResult:
 
 class DecisionFusion:
     """Weighted vote fusion with adaptive threshold."""
+    _shared_memory_manager: Optional[RedisMemoryManager] = None
 
     def __init__(self, agent_weights: Optional[Dict[str, float]] = None,
-                 threshold: float = FUSION_THRESHOLD_DEFAULT):
+                 threshold: float = FUSION_THRESHOLD_DEFAULT,
+                 memory_manager: Optional[RedisMemoryManager] = None):
         self._weights = dict(agent_weights or FUSION_AGENT_WEIGHTS)
         self._weights.setdefault("liquidity", 1.0)
         self.liquidity_agent = LiquidityAgent()
         self._threshold = threshold
         self._threshold_history: List[float] = []
         self._decision_log: List[FusionResult] = []
+        if memory_manager is not None:
+            self.memory_manager = memory_manager
+        else:
+            if DecisionFusion._shared_memory_manager is None:
+                DecisionFusion._shared_memory_manager = RedisMemoryManager()
+            self.memory_manager = DecisionFusion._shared_memory_manager
 
     # ------------------------------------------------------------------
     # Weight management
@@ -215,6 +224,7 @@ class DecisionFusion:
                 f"{name}: score={result.score:.3f} dir={result.direction} "
                 f"conf={result.confidence:.2f} w={w:.2f} | {', '.join(result.details[:3])}"
             )
+            self.memory_manager.set_agent_score(symbol, interval, name, result.score)
 
         direction = max(direction_votes, key=direction_votes.get) if direction_votes else "neutral"
 
@@ -285,6 +295,15 @@ class DecisionFusion:
         else:
             decision = DECISION_HOLD
 
+        recent_fusion = self.memory_manager.get_recent_fusion(symbol, interval)
+        if (
+            isinstance(recent_fusion, dict)
+            and recent_fusion.get("final_score") == float(final_score)
+            and recent_fusion.get("decision") == decision
+            and recent_fusion.get("direction") == direction
+        ):
+            logger.debug(f"Recomputed identical recent fusion for {symbol}/{interval}")
+
         result = FusionResult(
             decision_id=decision_id,
             symbol=symbol,
@@ -300,6 +319,7 @@ class DecisionFusion:
 
         # Log
         self._decision_log.append(result)
+        self.memory_manager.store_fusion_result(symbol, interval, result.to_dict())
         if len(self._decision_log) > 1000:
             self._decision_log.pop(0)
 
