@@ -8,7 +8,7 @@ from typing import Any, Dict, Optional, Tuple
 
 try:
     import redis
-except Exception:  # pragma: no cover - import errors are handled by fallback
+except ImportError:  # pragma: no cover - import exception branch only
     redis = None
 
 logger = logging.getLogger("RedisMemoryManager")
@@ -33,8 +33,8 @@ class RedisMemoryManager:
                 port=port,
                 db=db,
                 decode_responses=True,
-                socket_connect_timeout=0.2,
-                socket_timeout=0.2,
+                socket_connect_timeout=1.0,
+                socket_timeout=1.0,
                 health_check_interval=30,
             )
             self._redis_client = redis.Redis(connection_pool=pool)
@@ -62,9 +62,8 @@ class RedisMemoryManager:
 
     def set_agent_score(self, symbol: str, timeframe: str, agent_name: str, score: float) -> None:
         fallback_key = self._dict_key(symbol, timeframe)
-        self._fallback_agent_scores.setdefault(fallback_key, {})[agent_name] = float(score)
-
         if not self._redis_available or self._redis_client is None:
+            self._fallback_agent_scores.setdefault(fallback_key, {})[agent_name] = float(score)
             return
         try:
             self._redis_client.hset(
@@ -75,6 +74,7 @@ class RedisMemoryManager:
         except Exception as exc:
             logger.error(f"Redis set_agent_score failed, using fallback only. error={exc}")
             self._redis_available = False
+            self._fallback_agent_scores.setdefault(fallback_key, {})[agent_name] = float(score)
 
     def get_agent_scores(self, symbol: str, timeframe: str) -> Dict[str, float]:
         fallback = dict(self._fallback_agent_scores.get(self._dict_key(symbol, timeframe), {}))
@@ -94,9 +94,10 @@ class RedisMemoryManager:
     def store_fusion_result(self, symbol: str, timeframe: str, result_dict: Dict[str, Any]) -> None:
         payload = dict(result_dict or {})
         payload.setdefault("stored_at", time.time())
-        self._fallback_recent_fusion[self._dict_key(symbol, timeframe)] = payload
+        fallback_key = self._dict_key(symbol, timeframe)
 
         if not self._redis_available or self._redis_client is None:
+            self._fallback_recent_fusion[fallback_key] = payload
             return
 
         try:
@@ -108,6 +109,7 @@ class RedisMemoryManager:
         except Exception as exc:
             logger.error(f"Redis store_fusion_result failed, using fallback only. error={exc}")
             self._redis_available = False
+            self._fallback_recent_fusion[fallback_key] = payload
 
     def get_recent_fusion(self, symbol: str, timeframe: str) -> Optional[Dict[str, Any]]:
         fallback = self._fallback_recent_fusion.get(self._dict_key(symbol, timeframe))
