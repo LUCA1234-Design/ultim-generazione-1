@@ -15,6 +15,7 @@ import json
 import logging
 import math
 import os
+import threading
 import time
 import numpy as np
 from typing import Dict, List, Optional, Any
@@ -109,6 +110,7 @@ class MetaAgent(BaseAgent):
 
     def __init__(self, agents: Optional[List[BaseAgent]] = None):
         super().__init__("meta", initial_weight=1.0)
+        self._lock = threading.RLock()
         self._agents: Dict[str, BaseAgent] = {}
         self._records: Dict[str, AgentRecord] = {}
 
@@ -125,9 +127,10 @@ class MetaAgent(BaseAgent):
 
     def register(self, agent: BaseAgent) -> None:
         """Register an agent for monitoring."""
-        self._agents[agent.name] = agent
-        self._records[agent.name] = AgentRecord(agent.name)
-        self._demoted[agent.name] = False
+        with self._lock:
+            self._agents[agent.name] = agent
+            self._records[agent.name] = AgentRecord(agent.name)
+            self._demoted[agent.name] = False
         logger.info(f"MetaAgent: registered agent '{agent.name}'")
 
     # ------------------------------------------------------------------
@@ -142,28 +145,29 @@ class MetaAgent(BaseAgent):
         regime: Optional[str] = None,
     ) -> None:
         """Record whether a decision was correct for each participating agent."""
-        for name, result in agent_results.items():
-            record = self._records.get(name)
-            if record is None:
-                continue
-            record.add_outcome(
-                decision_id=decision_id,
-                score=result.score,
-                direction=result.direction,
-                correct=was_correct,
-            )
-
-            # Regime-specific record
-            if regime:
-                regime_agent_records = self._regime_records.setdefault(regime, {})
-                if name not in regime_agent_records:
-                    regime_agent_records[name] = AgentRecord(name)
-                regime_agent_records[name].add_outcome(
+        with self._lock:
+            for name, result in agent_results.items():
+                record = self._records.get(name)
+                if record is None:
+                    continue
+                record.add_outcome(
                     decision_id=decision_id,
                     score=result.score,
                     direction=result.direction,
                     correct=was_correct,
                 )
+
+                # Regime-specific record
+                if regime:
+                    regime_agent_records = self._regime_records.setdefault(regime, {})
+                    if name not in regime_agent_records:
+                        regime_agent_records[name] = AgentRecord(name)
+                    regime_agent_records[name].add_outcome(
+                        decision_id=decision_id,
+                        score=result.score,
+                        direction=result.direction,
+                        correct=was_correct,
+                    )
 
     def adjust_weights(self, regime: Optional[str] = None) -> Dict[str, float]:
         """
@@ -178,79 +182,80 @@ class MetaAgent(BaseAgent):
 
         Returns the new weight map.
         """
-        decay = float(META_WEIGHT_DECAY)
-        weight_map: Dict[str, float] = {}
+        with self._lock:
+            decay = float(META_WEIGHT_DECAY)
+            weight_map: Dict[str, float] = {}
 
-        for name, record in self._records.items():
-            agent = self._agents.get(name)
-            if agent is None:
-                continue
+            for name, record in self._records.items():
+                agent = self._agents.get(name)
+                if agent is None:
+                    continue
 
-            # Pick the regime-specific record if available
-            if regime and regime in self._regime_records:
-                regime_rec = self._regime_records[regime].get(name, record)
-            else:
-                regime_rec = record
+                # Pick the regime-specific record if available
+                if regime and regime in self._regime_records:
+                    regime_rec = self._regime_records[regime].get(name, record)
+                else:
+                    regime_rec = record
 
-            if len(regime_rec.decisions) < META_MIN_SAMPLES:
-                weight_map[name] = agent.weight
-                continue
+                if len(regime_rec.decisions) < META_MIN_SAMPLES:
+                    weight_map[name] = agent.weight
+                    continue
 
-            # --- LCB-based performance score ---
-            lcb = regime_rec.lower_confidence_bound()
-            cal_error = regime_rec.calibration_error()
-            cal_factor = 1.0 - cal_error            # well-calibrated → higher
+                # --- LCB-based performance score ---
+                lcb = regime_rec.lower_confidence_bound()
+                cal_error = regime_rec.calibration_error()
+                cal_factor = 1.0 - cal_error            # well-calibrated → higher
 
-            # Computed weight: scaled around 1.0, bounded to [0.05, 5.0]
-            computed_weight = float(np.clip(
-                lcb * 2.0 * cal_factor,             # range ~0.0 – 2.0
-                0.05, 5.0
-            ))
+                # Computed weight: scaled around 1.0, bounded to [0.05, 5.0]
+                computed_weight = float(np.clip(
+                    lcb * 2.0 * cal_factor,             # range ~0.0 – 2.0
+                    0.05, 5.0
+                ))
 
-            # --- EMA smoothing ---
-            new_weight = decay * agent.weight + (1.0 - decay) * computed_weight
-            new_weight = float(np.clip(new_weight, 0.05, 5.0))
+                # --- EMA smoothing ---
+                new_weight = decay * agent.weight + (1.0 - decay) * computed_weight
+                new_weight = float(np.clip(new_weight, 0.05, 5.0))
 
-            # --- Demotion / promotion ---
-            win_rate = regime_rec.win_rate()
-            is_demoted = self._demoted.get(name, False)
+                # --- Demotion / promotion ---
+                win_rate = regime_rec.win_rate()
+                is_demoted = self._demoted.get(name, False)
 
-            if not is_demoted and win_rate < _DEMOTION_WIN_RATE:
-                # Demote
-                new_weight = _DEMOTED_WEIGHT
-                self._demoted[name] = True
-                event = {
-                    "ts": time.time(), "agent": name, "event": "demoted",
-                    "win_rate": win_rate, "regime": regime,
-                }
-                self._demotion_history.append(event)
-                logger.warning(
-                    f"MetaAgent: DEMOTED '{name}' (wr={win_rate:.2%} < "
-                    f"{_DEMOTION_WIN_RATE:.0%}) → weight={_DEMOTED_WEIGHT}"
+                if not is_demoted and win_rate < _DEMOTION_WIN_RATE:
+                    # Demote
+                    new_weight = _DEMOTED_WEIGHT
+                    self._demoted[name] = True
+                    event = {
+                        "ts": time.time(), "agent": name, "event": "demoted",
+                        "win_rate": win_rate, "regime": regime,
+                    }
+                    self._demotion_history.append(event)
+                    logger.warning(
+                        f"MetaAgent: DEMOTED '{name}' (wr={win_rate:.2%} < "
+                        f"{_DEMOTION_WIN_RATE:.0%}) → weight={_DEMOTED_WEIGHT}"
+                    )
+                elif is_demoted and win_rate >= _PROMOTION_WIN_RATE:
+                    # Promote
+                    self._demoted[name] = False
+                    event = {
+                        "ts": time.time(), "agent": name, "event": "promoted",
+                        "win_rate": win_rate, "regime": regime,
+                    }
+                    self._demotion_history.append(event)
+                    logger.info(
+                        f"MetaAgent: PROMOTED '{name}' (wr={win_rate:.2%} ≥ "
+                        f"{_PROMOTION_WIN_RATE:.0%}) → weight={new_weight:.3f}"
+                    )
+                elif is_demoted:
+                    # Stay demoted
+                    new_weight = _DEMOTED_WEIGHT
+
+                agent.weight = new_weight
+                weight_map[name] = new_weight
+                logger.debug(
+                    f"MetaAgent: {name} wr={win_rate:.2%} lcb={lcb:.3f} "
+                    f"cal={cal_error:.3f} → weight={new_weight:.3f}"
+                    + (f" [demoted]" if self._demoted.get(name) else "")
                 )
-            elif is_demoted and win_rate >= _PROMOTION_WIN_RATE:
-                # Promote
-                self._demoted[name] = False
-                event = {
-                    "ts": time.time(), "agent": name, "event": "promoted",
-                    "win_rate": win_rate, "regime": regime,
-                }
-                self._demotion_history.append(event)
-                logger.info(
-                    f"MetaAgent: PROMOTED '{name}' (wr={win_rate:.2%} ≥ "
-                    f"{_PROMOTION_WIN_RATE:.0%}) → weight={new_weight:.3f}"
-                )
-            elif is_demoted:
-                # Stay demoted
-                new_weight = _DEMOTED_WEIGHT
-
-            agent.weight = new_weight
-            weight_map[name] = new_weight
-            logger.debug(
-                f"MetaAgent: {name} wr={win_rate:.2%} lcb={lcb:.3f} "
-                f"cal={cal_error:.3f} → weight={new_weight:.3f}"
-                + (f" [demoted]" if self._demoted.get(name) else "")
-            )
 
         return weight_map
 
@@ -262,37 +267,38 @@ class MetaAgent(BaseAgent):
         - Per-regime statistics
         - Demotion / promotion history
         """
-        report: Dict[str, Any] = {}
-        for name, record in self._records.items():
-            agent = self._agents.get(name)
-            entry: Dict[str, Any] = {
-                "weight": agent.weight if agent else None,
-                "win_rate": record.win_rate(),
-                "win_rate_lcb": record.lower_confidence_bound(),
-                "variance": record.variance(),
-                "n_decisions": len(record.decisions),
-                "cal_error": record.calibration_error(),
-                "avg_score_correct": record.avg_score_when_correct(),
-                "avg_score_wrong": record.avg_score_when_wrong(),
-                "demoted": self._demoted.get(name, False),
-            }
+        with self._lock:
+            report: Dict[str, Any] = {}
+            for name, record in self._records.items():
+                agent = self._agents.get(name)
+                entry: Dict[str, Any] = {
+                    "weight": agent.weight if agent else None,
+                    "win_rate": record.win_rate(),
+                    "win_rate_lcb": record.lower_confidence_bound(),
+                    "variance": record.variance(),
+                    "n_decisions": len(record.decisions),
+                    "cal_error": record.calibration_error(),
+                    "avg_score_correct": record.avg_score_when_correct(),
+                    "avg_score_wrong": record.avg_score_when_wrong(),
+                    "demoted": self._demoted.get(name, False),
+                }
 
-            if include_regime and self._regime_records:
-                regime_stats: Dict[str, Any] = {}
-                for regime_name, regime_agents in self._regime_records.items():
-                    rec = regime_agents.get(name)
-                    if rec and len(rec.decisions) >= 1:
-                        regime_stats[regime_name] = {
-                            "win_rate": rec.win_rate(),
-                            "win_rate_lcb": rec.lower_confidence_bound(),
-                            "n_decisions": len(rec.decisions),
-                        }
-                entry["regime_stats"] = regime_stats
+                if include_regime and self._regime_records:
+                    regime_stats: Dict[str, Any] = {}
+                    for regime_name, regime_agents in self._regime_records.items():
+                        rec = regime_agents.get(name)
+                        if rec and len(rec.decisions) >= 1:
+                            regime_stats[regime_name] = {
+                                "win_rate": rec.win_rate(),
+                                "win_rate_lcb": rec.lower_confidence_bound(),
+                                "n_decisions": len(rec.decisions),
+                            }
+                    entry["regime_stats"] = regime_stats
 
-            report[name] = entry
+                report[name] = entry
 
-        report["_demotion_history"] = self._demotion_history[-20:]  # last 20 events
-        return report
+            report["_demotion_history"] = self._demotion_history[-20:]  # last 20 events
+            return report
 
     # ------------------------------------------------------------------
     # State persistence
@@ -301,24 +307,25 @@ class MetaAgent(BaseAgent):
     def save_state(self, path: str = _DEFAULT_SAVE_PATH) -> bool:
         """Serialise MetaAgent records and weights to a JSON file."""
         try:
-            dir_path = os.path.dirname(path)
-            os.makedirs(dir_path if dir_path else ".", exist_ok=True)
-            state = {
-                "records": {name: rec.to_dict() for name, rec in self._records.items()},
-                "weights": {name: agent.weight for name, agent in self._agents.items()},
-                "demoted": dict(self._demoted),
-                "demotion_history": self._demotion_history,
-                "regime_records": {
-                    regime: {
-                        name: rec.to_dict()
-                        for name, rec in agents.items()
-                    }
-                    for regime, agents in self._regime_records.items()
-                },
-                "saved_at": time.time(),
-            }
-            with open(path, "w", encoding="utf-8") as fh:
-                json.dump(state, fh, indent=2)
+            with self._lock:
+                dir_path = os.path.dirname(path)
+                os.makedirs(dir_path if dir_path else ".", exist_ok=True)
+                state = {
+                    "records": {name: rec.to_dict() for name, rec in self._records.items()},
+                    "weights": {name: agent.weight for name, agent in self._agents.items()},
+                    "demoted": dict(self._demoted),
+                    "demotion_history": self._demotion_history,
+                    "regime_records": {
+                        regime: {
+                            name: rec.to_dict()
+                            for name, rec in agents.items()
+                        }
+                        for regime, agents in self._regime_records.items()
+                    },
+                    "saved_at": time.time(),
+                }
+                with open(path, "w", encoding="utf-8") as fh:
+                    json.dump(state, fh, indent=2)
             logger.info(f"MetaAgent: state saved to '{path}'")
             return True
         except Exception as exc:
@@ -334,27 +341,28 @@ class MetaAgent(BaseAgent):
             with open(path, "r", encoding="utf-8") as fh:
                 state = json.load(fh)
 
-            # Restore records
-            for name, rec_data in state.get("records", {}).items():
-                if name in self._records:
-                    self._records[name] = AgentRecord.from_dict(rec_data)
+            with self._lock:
+                # Restore records
+                for name, rec_data in state.get("records", {}).items():
+                    if name in self._records:
+                        self._records[name] = AgentRecord.from_dict(rec_data)
 
-            # Restore weights
-            for name, w in state.get("weights", {}).items():
-                agent = self._agents.get(name)
-                if agent:
-                    agent.weight = w
+                # Restore weights
+                for name, w in state.get("weights", {}).items():
+                    agent = self._agents.get(name)
+                    if agent:
+                        agent.weight = w
 
-            # Restore demotion state
-            self._demoted.update(state.get("demoted", {}))
-            self._demotion_history = list(state.get("demotion_history", []))
+                # Restore demotion state
+                self._demoted.update(state.get("demoted", {}))
+                self._demotion_history = list(state.get("demotion_history", []))
 
-            # Restore regime records
-            for regime, agents in state.get("regime_records", {}).items():
-                self._regime_records[regime] = {
-                    name: AgentRecord.from_dict(rec_data)
-                    for name, rec_data in agents.items()
-                }
+                # Restore regime records
+                for regime, agents in state.get("regime_records", {}).items():
+                    self._regime_records[regime] = {
+                        name: AgentRecord.from_dict(rec_data)
+                        for name, rec_data in agents.items()
+                    }
 
             logger.info(
                 f"MetaAgent: state loaded from '{path}' "
