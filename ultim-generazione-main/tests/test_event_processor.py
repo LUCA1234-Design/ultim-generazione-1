@@ -21,10 +21,6 @@ def _agent_result(name: str, direction: str = "long", metadata: dict | None = No
 
 
 def _make_processor(execution: MagicMock, fusion: MagicMock) -> EventProcessor:
-    if not hasattr(fusion, "memory_manager"):
-        fusion.memory_manager = MagicMock()
-    fusion.memory_manager.get_sentiment_score.return_value = 0.0
-
     pattern = MagicMock()
     pattern.safe_analyse.return_value = _agent_result("pattern")
 
@@ -218,6 +214,7 @@ def test_on_candle_close_skips_long_when_sentiment_is_highly_negative(monkeypatc
     fusion._threshold = 0.5
 
     processor = _make_processor(execution, fusion)
+    processor.fusion.memory_manager = MagicMock()
     processor.fusion.memory_manager.get_sentiment_score.return_value = -0.8
     processor.volume_trigger.confirm = MagicMock(return_value=(True, {"imbalance": 0.3}))
 
@@ -265,6 +262,7 @@ def test_on_candle_close_skips_short_when_sentiment_is_highly_positive(monkeypat
     fusion._threshold = 0.5
 
     processor = _make_processor(execution, fusion)
+    processor.fusion.memory_manager = MagicMock()
     processor.fusion.memory_manager.get_sentiment_score.return_value = 0.9
     processor.volume_trigger.confirm = MagicMock(return_value=(True, {"imbalance": -0.3}))
 

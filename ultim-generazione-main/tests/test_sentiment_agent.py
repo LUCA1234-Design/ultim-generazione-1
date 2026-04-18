@@ -14,7 +14,7 @@ def test_sentiment_agent_updates_symbols_once():
     symbols = ["BTCUSDT", "ETHUSDT"]
 
     def fetcher(symbol: str) -> float:
-        return {"BTCUSDT": -0.7, "ETHUSDT": 0.4}[symbol]
+        return {"BTCUSDT": -0.7, "ETHUSDT": 0.4}.get(symbol, 0.0)
 
     agent = SentimentAgent(
         memory_manager=memory,

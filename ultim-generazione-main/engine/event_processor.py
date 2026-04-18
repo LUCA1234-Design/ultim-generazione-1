@@ -405,9 +405,12 @@ class EventProcessor:
             return None
 
         sentiment_score = 0.0
-        sentiment_memory = getattr(self.fusion, "memory_manager", None)
-        if sentiment_memory is not None and hasattr(sentiment_memory, "get_sentiment_score"):
-            sentiment_score = float(sentiment_memory.get_sentiment_score(symbol))
+        memory_manager = getattr(self.fusion, "memory_manager", None)
+        if memory_manager is not None and hasattr(memory_manager, "get_sentiment_score"):
+            try:
+                sentiment_score = float(memory_manager.get_sentiment_score(symbol))
+            except (TypeError, ValueError):
+                pass
         if fusion_result.decision == "long" and sentiment_score < SENTIMENT_NEGATIVE_BLOCK_THRESHOLD:
             self._skip("negative_news_sentiment")
             logger.info(

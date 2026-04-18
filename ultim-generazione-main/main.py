@@ -501,6 +501,7 @@ def _report_loop(processor: EventProcessor, tracker: PerformanceTracker,
 # ---------------------------------------------------------------------------
 
 def main():
+    sentiment_agent: Optional[SentimentAgent] = None
     logger.info("=" * 60)
     logger.info("🤖 V17 AGENTIC AI TRADING SYSTEM")
     logger.info("=" * 60)
@@ -551,16 +552,6 @@ def main():
         # ---- Build V17 system ----
         processor, meta, tracker, execution, risk_agent, strategy_agent, confluence_agent, pattern_agent, decision_context = build_system()
 
-        sentiment_agent: Optional[SentimentAgent] = None
-        if SENTIMENT_ENABLED:
-            sentiment_agent = SentimentAgent(
-                memory_manager=processor.fusion.memory_manager,
-                symbols_provider=lambda: list(set(symbols_whitelist + (symbols_hg_all if HG_MONITOR_ALL else []))),
-                update_interval_seconds=SENTIMENT_UPDATE_INTERVAL_SECONDS,
-                ttl_seconds=SENTIMENT_TTL_SECONDS,
-            )
-            sentiment_agent.start()
-
         # ---- Build & start Evolution Engine ----
         evolution_engine = EvolutionEngine(
             meta_agent=meta,
@@ -582,6 +573,14 @@ def main():
 
         # ---- Wire WebSocket callbacks ----
         all_symbols = list(set(symbols_whitelist + (symbols_hg_all if HG_MONITOR_ALL else [])))
+        if SENTIMENT_ENABLED:
+            sentiment_agent = SentimentAgent(
+                memory_manager=processor.fusion.memory_manager,
+                symbols_provider=lambda: all_symbols,
+                update_interval_seconds=SENTIMENT_UPDATE_INTERVAL_SECONDS,
+                ttl_seconds=SENTIMENT_TTL_SECONDS,
+            )
+            sentiment_agent.start()
 
         def ws_on_update(symbol, interval, kline):
             data_store.update_realtime(symbol, interval, kline)
@@ -723,7 +722,7 @@ def main():
         logger.info("⏹️ MANUAL SHUTDOWN (Ctrl+C)")
         logger.info("=" * 60)
         try:
-            if "sentiment_agent" in locals() and sentiment_agent is not None:
+            if sentiment_agent is not None:
                 sentiment_agent.stop()
         except Exception as e:
             logger.error(f"sentiment_agent.stop error: {e}")

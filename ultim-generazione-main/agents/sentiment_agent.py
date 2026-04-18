@@ -6,6 +6,7 @@ from typing import Callable, Iterable, List, Optional
 from engine.memory_manager import RedisMemoryManager
 
 logger = logging.getLogger("SentimentAgent")
+_MIN_SECONDS = 60
 
 
 class SentimentAgent:
@@ -21,9 +22,16 @@ class SentimentAgent:
     ):
         self.memory_manager = memory_manager
         self.symbols_provider = symbols_provider
-        self.update_interval_seconds = max(int(update_interval_seconds), 60)
-        self.sentiment_fetcher = sentiment_fetcher or self._mock_fetch_sentiment
-        self.ttl_seconds = max(int(ttl_seconds), 60)
+        self.update_interval_seconds = max(int(update_interval_seconds), _MIN_SECONDS)
+        if sentiment_fetcher is None:
+            self.sentiment_fetcher = self._mock_fetch_sentiment
+            logger.warning(
+                "SentimentAgent using mock random sentiment fetcher; "
+                "plug in a real news API fetcher for production sentiment."
+            )
+        else:
+            self.sentiment_fetcher = sentiment_fetcher
+        self.ttl_seconds = max(int(ttl_seconds), _MIN_SECONDS)
         self._stop_event = threading.Event()
         self._thread: Optional[threading.Thread] = None
 
