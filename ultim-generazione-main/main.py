@@ -643,20 +643,22 @@ def main():
         # ---- Private User Data Stream (LIVE only) ----
         if not PAPER_TRADING:
             user_data_events: "Queue[Dict[str, Any]]" = Queue(maxsize=500)
+            user_data_queue_lock = threading.Lock()
 
             def _on_user_event(event: Dict[str, Any]) -> None:
-                try:
-                    user_data_events.put_nowait(event)
-                except Exception:
-                    logger.warning("User Data Stream event queue full - dropping oldest event")
+                with user_data_queue_lock:
                     try:
-                        dropped_event = user_data_events.get_nowait()
-                        logger.warning(
-                            f"User Data Stream dropped queued event type={str(dropped_event.get('e', 'unknown'))}"
-                        )
                         user_data_events.put_nowait(event)
-                    except Exception as queue_recover_err:
-                        logger.debug(f"User Data Stream queue recovery failed: {queue_recover_err}")
+                    except Exception:
+                        logger.warning("User Data Stream event queue full - dropping oldest event")
+                        try:
+                            dropped_event = user_data_events.get_nowait()
+                            logger.warning(
+                                f"User Data Stream dropped queued event type={str(dropped_event.get('e', 'unknown'))}"
+                            )
+                            user_data_events.put_nowait(event)
+                        except Exception as queue_recover_err:
+                            logger.debug(f"User Data Stream queue recovery failed: {queue_recover_err}")
 
             user_data_stream = UserDataStreamManager(on_event=_on_user_event)
             uds_started = user_data_stream.start()
