@@ -10,3 +10,4 @@ mplfinance>=0.12.10
 pytest>=7.0.0
 pytest-mock>=3.10.0
 redis>=5.0.0
+defusedxml>=0.7.1

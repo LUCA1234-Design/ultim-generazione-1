@@ -1,5 +1,5 @@
 from agents.sentiment_agent import SentimentAgent
-import requests
+from requests.exceptions import ConnectionError
 
 
 class MemoryManagerSpy:
@@ -47,6 +47,7 @@ def test_sentiment_agent_clamps_scores_between_minus_one_and_one():
 def test_extract_sentiment_score_parses_numeric_text():
     assert SentimentAgent._extract_sentiment_score("0.45") == 0.45
     assert SentimentAgent._extract_sentiment_score("score: -2.7") == -1.0
+    assert SentimentAgent._extract_sentiment_score("score: 2.7") == 1.0
 
 
 def test_sentiment_agent_returns_neutral_if_news_fetch_fails(monkeypatch):
@@ -77,7 +78,7 @@ def test_sentiment_agent_returns_neutral_if_lm_studio_unreachable(monkeypatch):
     monkeypatch.setattr(agent, "_fetch_news_headlines", lambda _symbol, limit=3: ["Bitcoin ETF approved"])
 
     def fail_llm(*_args, **_kwargs):
-        raise requests.exceptions.ConnectionError("Connection refused")
+        raise ConnectionError("Connection refused")
 
     monkeypatch.setattr("agents.sentiment_agent.requests.post", fail_llm)
     agent.update_once()

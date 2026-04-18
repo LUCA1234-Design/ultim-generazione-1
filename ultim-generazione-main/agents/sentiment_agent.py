@@ -2,10 +2,10 @@ import logging
 import os
 import re
 import threading
-import xml.etree.ElementTree as ET
 from typing import Callable, Iterable, List, Optional
 
 import requests
+from defusedxml import ElementTree as DefusedElementTree
 
 from engine.memory_manager import RedisMemoryManager
 
@@ -15,6 +15,7 @@ _HTTP_TIMEOUT_SECONDS = 8.0
 _DEFAULT_LM_STUDIO_URL = "http://localhost:1234/v1"
 _DEFAULT_LM_STUDIO_MODEL = "qwen2.5-1.5b-instruct"
 _CRYPTO_PANIC_URL = "https://cryptopanic.com/api/v1/posts/"
+_NUMERIC_PATTERN = r"[-+]?\d+(?:\.\d+)?"
 _RSS_FEEDS = (
     "https://www.coindesk.com/arc/outboundfeeds/rss/",
     "https://cointelegraph.com/rss",
@@ -65,10 +66,17 @@ class SentimentAgent:
     @staticmethod
     def _extract_sentiment_score(raw_text: str) -> float:
         text = str(raw_text or "").strip().replace(",", ".")
-        match = re.search(r"[-+]?\d+(?:\.\d+)?", text)
-        if not match:
-            raise ValueError(f"No numeric sentiment score found in: {raw_text!r}")
-        return max(min(float(match.group(0)), 1.0), -1.0)
+        exact_match = re.fullmatch(_NUMERIC_PATTERN, text)
+        if exact_match:
+            return max(min(float(exact_match.group(0)), 1.0), -1.0)
+
+        numeric_matches = re.findall(_NUMERIC_PATTERN, text)
+        if len(numeric_matches) != 1:
+            raise ValueError(
+                f"Expected exactly one numeric sentiment score but found {len(numeric_matches)} "
+                f"in: {raw_text!r}"
+            )
+        return max(min(float(numeric_matches[0]), 1.0), -1.0)
 
     @staticmethod
     def _symbol_aliases(symbol: str) -> List[str]:
@@ -124,9 +132,11 @@ class SentimentAgent:
             try:
                 response = requests.get(feed_url, timeout=_HTTP_TIMEOUT_SECONDS)
                 response.raise_for_status()
-                root = ET.fromstring(response.text)
+                root = DefusedElementTree.fromstring(response.content)
                 for node in root.iter():
-                    if not node.tag.lower().endswith("title"):
+                    tag = str(node.tag)
+                    tag_lower = tag.lower()
+                    if not tag_lower.endswith("title"):
                         continue
                     title = str((node.text or "")).strip()
                     if not title:
@@ -149,25 +159,31 @@ class SentimentAgent:
             "Respond ONLY with a single float number between -1.0 "
             "(extreme negative) and 1.0 (extreme positive)."
         )
-        response = requests.post(
-            self._chat_completions_url(),
-            json={
-                "model": self.lm_studio_model,
-                "temperature": 0.0,
-                "messages": [
-                    {
-                        "role": "system",
-                        "content": (
-                            "You are a sentiment scorer for crypto headlines. "
-                            "Return only one float in [-1, 1]."
-                        ),
-                    },
-                    {"role": "user", "content": prompt},
-                ],
-            },
-            timeout=_HTTP_TIMEOUT_SECONDS,
-        )
-        response.raise_for_status()
+        try:
+            response = requests.post(
+                self._chat_completions_url(),
+                json={
+                    "model": self.lm_studio_model,
+                    "temperature": 0.0,
+                    "messages": [
+                        {
+                            "role": "system",
+                            "content": (
+                                "You are a sentiment scorer for crypto headlines. "
+                                "Return only one float in [-1, 1]."
+                            ),
+                        },
+                        {"role": "user", "content": prompt},
+                    ],
+                },
+                timeout=_HTTP_TIMEOUT_SECONDS,
+            )
+            response.raise_for_status()
+        except requests.exceptions.HTTPError as exc:
+            raise RuntimeError(f"LM Studio HTTP error: {exc}") from exc
+        except requests.exceptions.RequestException as exc:
+            raise RuntimeError(f"LM Studio request failed: {exc}") from exc
+
         payload = response.json()
         choices = payload.get("choices", []) if isinstance(payload, dict) else []
         content = ""

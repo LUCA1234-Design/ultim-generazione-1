@@ -2,7 +2,10 @@
 V17 Agentic AI Trading System — Configuration
 All settings in V16 style: os.getenv with hardcoded fallbacks.
 """
+import logging
 import os
+
+logger = logging.getLogger("Settings")
 
 
 def _load_dotenv_if_present() -> None:
@@ -20,9 +23,16 @@ def _load_dotenv_if_present() -> None:
                 key = key.strip()
                 if not key:
                     continue
-                os.environ.setdefault(key, value.strip().strip('"').strip("'"))
-    except OSError:
-        pass
+                parsed_value = value.strip()
+                if (
+                    len(parsed_value) >= 2
+                    and parsed_value[0] == parsed_value[-1]
+                    and parsed_value[0] in {'"', "'"}
+                ):
+                    parsed_value = parsed_value[1:-1]
+                os.environ.setdefault(key, parsed_value)
+    except (PermissionError, UnicodeDecodeError, OSError) as exc:
+        logger.warning(f"Failed to load .env from {dotenv_path}: {exc}")
 
 
 _load_dotenv_if_present()
