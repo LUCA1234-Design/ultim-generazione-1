@@ -648,7 +648,7 @@ def main():
                 try:
                     user_data_events.put_nowait(event)
                 except Exception:
-                    logger.warning("User Data Stream event queue full — dropping oldest event")
+                    logger.warning("User Data Stream event queue full - dropping oldest event")
                     try:
                         _ = user_data_events.get_nowait()
                         user_data_events.put_nowait(event)
@@ -666,7 +666,7 @@ def main():
                 ).start()
                 logger.info("⚡ User Data Stream active: execution updates now event-driven")
             else:
-                logger.warning("⚠️ User Data Stream unavailable — continuing with polling/market data path")
+                logger.warning("⚠️ User Data Stream unavailable - continuing with polling/market data path")
         else:
             logger.info("ℹ️ User Data Stream skipped in PAPER_TRADING mode")
 

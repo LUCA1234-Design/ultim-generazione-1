@@ -220,7 +220,7 @@ class UserDataStreamManager:
                 ws_app.run_forever(
                     ping_interval=20,
                     ping_timeout=10,
-                    ping_payload="ping",
+                    ping_payload="",
                 )
             except Exception as exc:
                 logger.warning(f"User Data WS run_forever error: {exc}")

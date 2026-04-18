@@ -358,25 +358,21 @@ class ExecutionEngine:
                 event_price = 0.0
 
             with self._lock:
-                symbol_pos_ids = [
-                    pos_id
+                symbol_positions = [
+                    (pos_id, pos)
                     for pos_id, pos in self._open_positions.items()
                     if pos.symbol.upper() == symbol
                 ]
-            for pos_id in symbol_pos_ids:
-                with self._lock:
-                    pos = self._open_positions.get(pos_id)
-                if pos is None:
-                    continue
-                close_price = event_price if event_price > 0 else pos.entry_price
-                closed = self.close_position(
-                    pos_id,
-                    close_price=close_price,
-                    reason="account_update_flat",
-                    from_exchange=True,
-                )
-                if closed is not None:
-                    closed_positions.append(closed)
+                for pos_id, pos in symbol_positions:
+                    close_price = event_price if event_price > 0 else pos.entry_price
+                    closed = self.close_position(
+                        pos_id,
+                        close_price=close_price,
+                        reason="account_update_flat",
+                        from_exchange=True,
+                    )
+                    if closed is not None:
+                        closed_positions.append(closed)
         return closed_positions
 
     def _apply_external_fill(
