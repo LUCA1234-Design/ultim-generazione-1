@@ -16,6 +16,7 @@ from agents.strategy_agent import StrategyAgent
 from agents.meta_agent import MetaAgent
 from engine.decision_fusion import DecisionFusion, FusionResult, DECISION_HOLD, _SNIPER_MIN_AGREEING_TIMEFRAMES
 from engine.execution import ExecutionEngine
+from engine.volume_trigger import VolumeTrigger
 from data import data_store
 from config.settings import (
     ORARI_VIETATI_UTC,
@@ -49,6 +50,7 @@ class EventProcessor:
         fusion: DecisionFusion,
         execution: ExecutionEngine,
         on_signal: Optional[Callable] = None,
+        volume_trigger: Optional[VolumeTrigger] = None,
     ):
         self.pattern = pattern_agent
         self.regime = regime_agent
@@ -59,6 +61,7 @@ class EventProcessor:
         self.fusion = fusion
         self.execution = execution
         self.on_signal = on_signal  # callback for notifications
+        self.volume_trigger = volume_trigger or VolumeTrigger()
 
         self._last_signal_time: Dict[str, float] = {}
         self._processed_count = 0
@@ -84,6 +87,7 @@ class EventProcessor:
             "high_correlation": 0,
             "unfavorable_regime": 0,
             "weak_confluence": 0,
+            "weak_micro_momentum": 0,
         }
 
     # ------------------------------------------------------------------
@@ -393,6 +397,15 @@ class EventProcessor:
             logger.warning(
                 f"Trade blocked for {symbol} due to high correlation ({corr:.2f}) "
                 f"with open position {blocked_symbol}"
+            )
+            return None
+
+        momentum_ok, momentum_info = self.volume_trigger.confirm(symbol, fusion_result.decision)
+        if not momentum_ok:
+            self._skip("weak_micro_momentum")
+            logger.info(
+                f"⛔ {symbol}/{interval} SKIP: weak_micro_momentum | "
+                f"direction={fusion_result.decision} info={momentum_info}"
             )
             return None
 

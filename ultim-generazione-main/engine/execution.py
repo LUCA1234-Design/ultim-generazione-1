@@ -22,6 +22,7 @@ from config.settings import (
     TRAINING_MODE,
 )
 from data.binance_client import place_futures_order
+from memory import experience_db
 
 logger = logging.getLogger("Execution")
 
@@ -133,15 +134,24 @@ class ExecutionEngine:
         self._open_positions: Dict[str, Position] = {}   # position_id → Position
         self._closed_positions: List[Position] = []
         self._total_pnl = 0.0
-        self._trade_count = 0
+        self._trade_count = self._restore_trade_count()
         self._win_count = 0
         self._daily_pnl = 0.0
         self._consecutive_losses = 0
         self._current_day = datetime.datetime.now(datetime.timezone.utc).date()
         logger.info(
             f"ExecutionEngine: {'PAPER' if paper_trading else 'LIVE'} trading | "
-            f"balance={initial_balance}"
+            f"balance={initial_balance} | restored_trades={self._trade_count}"
         )
+
+    def _restore_trade_count(self) -> int:
+        if not self.paper_trading:
+            return 0
+        try:
+            return max(0, int(experience_db.get_completed_trade_count(paper_only=True)))
+        except Exception as e:
+            logger.debug(f"ExecutionEngine trade counter restore error: {e}")
+            return 0
     def _roll_day_if_needed(self) -> None:
         today = datetime.datetime.now(datetime.timezone.utc).date()
         if today != self._current_day:
