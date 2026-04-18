@@ -350,6 +350,7 @@ class EventProcessor:
                 "sl": _close - 2.0 * _atr_val if fusion_result.decision == "long" else _close + 2.0 * _atr_val,
                 "tp1": _close + 2.0 * _atr_val if fusion_result.decision == "long" else _close - 2.0 * _atr_val,
                 "tp2": _close + 4.0 * _atr_val if fusion_result.decision == "long" else _close - 4.0 * _atr_val,
+                "atr": _atr_val,
                 "size": 0.001,
             }
         sl = risk_meta.get("sl", df["close"].iloc[-1] * 0.99)
@@ -357,6 +358,7 @@ class EventProcessor:
         tp2 = risk_meta.get("tp2", df["close"].iloc[-1] * 1.04)
         size = risk_meta.get("size", 0.001)
         entry = risk_meta.get("entry", float(df["close"].iloc[-1]))
+        initial_atr = risk_meta.get("atr")
         strategy_name = strategy_result.metadata.get("strategy", "") if strategy_result else ""
 
         try:
@@ -405,6 +407,7 @@ class EventProcessor:
             tp2=tp2,
             strategy=strategy_name,
             decision_id=fusion_result.decision_id,
+            initial_atr=initial_atr,
         )
 
         if position:

@@ -39,20 +39,22 @@ class TestRiskAgent:
     # ------------------------------------------------------------------
 
     def test_calc_levels_long_direction(self, ohlcv_df):
-        sl, tp1, tp2, rr = self.agent.calc_levels(ohlcv_df, "long")
+        sl, tp1, tp2, rr, atr_value = self.agent.calc_levels(ohlcv_df, "long")
         close = ohlcv_df["close"].iloc[-1]
         assert sl < close, "SL must be below entry for long"
         assert tp1 > close, "TP1 must be above entry for long"
         assert tp2 > tp1, "TP2 must be above TP1"
         assert rr > 0, "R/R must be positive"
+        assert atr_value > 0, "ATR must be positive"
 
     def test_calc_levels_short_direction(self, ohlcv_df):
-        sl, tp1, tp2, rr = self.agent.calc_levels(ohlcv_df, "short")
+        sl, tp1, tp2, rr, atr_value = self.agent.calc_levels(ohlcv_df, "short")
         close = ohlcv_df["close"].iloc[-1]
         assert sl > close, "SL must be above entry for short"
         assert tp1 < close, "TP1 must be below entry for short"
         assert tp2 < tp1, "TP2 must be below TP1"
         assert rr > 0
+        assert atr_value > 0, "ATR must be positive"
 
     def test_kelly_fraction_valid_range(self):
         f = RiskAgent.kelly_fraction(win_rate=0.6, rr=2.0)

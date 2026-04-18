@@ -61,10 +61,22 @@ class Position:
     pnl: Optional[float] = None
     status: str = "open"   # "open" | "closed" | "sl_hit" | "tp1_hit" | "tp2_hit"
     tp1_hit: bool = False
+    is_tp1_hit: bool = False
     tp2_hit: bool = False
     realized_pnl: float = 0.0
+    initial_size: Optional[float] = None
+    initial_sl: Optional[float] = None
+    initial_atr: Optional[float] = None
     decision_id: str = ""
     paper: bool = True
+
+    def __post_init__(self) -> None:
+        self.tp1_hit = bool(self.tp1_hit or self.is_tp1_hit)
+        self.is_tp1_hit = self.tp1_hit
+        if self.initial_size is None:
+            self.initial_size = self.size
+        if self.initial_sl is None:
+            self.initial_sl = self.sl
 
     def unrealised_pnl(self, current_price: float) -> float:
         if self.direction == "long":
@@ -88,6 +100,11 @@ class Position:
             "close_price": self.close_price,
             "pnl": self.pnl,
             "status": self.status,
+            "tp1_hit": self.tp1_hit,
+            "is_tp1_hit": self.is_tp1_hit,
+            "tp2_hit": self.tp2_hit,
+            "initial_size": self.initial_size,
+            "initial_sl": self.initial_sl,
             "realized_pnl": self.realized_pnl,
             "paper": self.paper,
         }
@@ -152,8 +169,20 @@ class ExecutionEngine:
     def open_position(self, symbol: str, interval: str, direction: str,
                       entry_price: float, size: float, sl: float,
                       tp1: float, tp2: float, strategy: str = "",
-                      decision_id: str = "") -> Optional[Position]:
+                      decision_id: str = "",
+                      initial_atr: Optional[float] = None) -> Optional[Position]:
         """Open a new position (paper or live)."""
+        direction = (direction or "").lower()
+        if direction not in ("long", "short"):
+            logger.error(f"Invalid direction for open_position: {direction}")
+            return None
+
+        risk = abs(entry_price - sl)
+        if tp1 is None:
+            tp1 = entry_price + risk if direction == "long" else entry_price - risk
+        if tp2 is None:
+            tp2 = entry_price + 2.0 * risk if direction == "long" else entry_price - 2.0 * risk
+
         pos_id = str(uuid.uuid4())[:8]
         pos = Position(
             position_id=pos_id,
@@ -167,6 +196,7 @@ class ExecutionEngine:
             tp2=tp2,
             strategy=strategy,
             decision_id=decision_id,
+            initial_atr=initial_atr,
             paper=self.paper_trading,
         )
 
@@ -255,6 +285,7 @@ class ExecutionEngine:
                     close_pnl = (current_price - pos.entry_price) * close_size
                     self._execute_tp1_scale_out(pos, close_size, close_pnl)
                     pos.tp1_hit = True
+                    pos.is_tp1_hit = True
                     pos.sl = pos.entry_price
                     logger.info(
                         f"🎯 TP1 hit [{pos_id}] {pos.symbol} — 50% closed for profit "
@@ -281,6 +312,7 @@ class ExecutionEngine:
                     close_pnl = (pos.entry_price - current_price) * close_size
                     self._execute_tp1_scale_out(pos, close_size, close_pnl)
                     pos.tp1_hit = True
+                    pos.is_tp1_hit = True
                     pos.sl = pos.entry_price
                     logger.info(
                         f"🎯 TP1 hit [{pos_id}] {pos.symbol} — 50% closed for profit "
@@ -325,6 +357,7 @@ class ExecutionEngine:
                 f"Invalid TP configuration for dynamic trailing [{pos.position_id}] "
                 f"{pos.symbol}: tp1={pos.tp1:.4f}, tp2={pos.tp2:.4f}"
             )
+            progress = 1.0
             trail_pct = _TRAIL_PCT_AT_TP2
         else:
             if pos.direction == "long":
@@ -334,7 +367,15 @@ class ExecutionEngine:
             trail_pct = _TRAIL_PCT_AT_TP1 + (
                 (_TRAIL_PCT_AT_TP2 - _TRAIL_PCT_AT_TP1) * progress
             )
-        return max(current_price * trail_pct, _MIN_TRAIL_DISTANCE)
+
+        # ATR-adaptive component:
+        # widen stop when initial ATR is high; tighten as price progresses to TP2.
+        atr_ref = float(abs(pos.initial_atr or 0.0))
+        if atr_ref <= 0.0:
+            atr_ref = abs(pos.entry_price - float(pos.initial_sl or pos.sl))
+        atr_distance = atr_ref * (1.2 - 0.6 * progress)
+        pct_distance = current_price * trail_pct
+        return max((atr_distance + pct_distance) * 0.5, _MIN_TRAIL_DISTANCE)
 
     def _execute_tp1_scale_out(self, pos: Position, close_size: float, close_pnl: float) -> None:
         """Apply TP1 partial close accounting and reduce open size.

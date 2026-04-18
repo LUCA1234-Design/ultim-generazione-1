@@ -74,8 +74,8 @@ class RiskAgent(BaseAgent):
     def calc_levels(self, df: pd.DataFrame, direction: str,
                     atr_sl_mult: float = 1.5,       # was 2.0 — tighter SL
                     atr_tp1_mult: float = 2.5,      # was 2.0 — wider TP1, gives R/R = 2.5/1.5 = 1.67
-                    atr_tp2_mult: float = 5.0) -> Tuple[float, float, float, float]:
-        """Compute SL, TP1, TP2 from ATR, and return (sl, tp1, tp2, rr)."""
+                    atr_tp2_mult: float = 5.0) -> Tuple[float, float, float, float, float]:
+        """Compute SL, TP1, TP2 from ATR, and return (sl, tp1, tp2, rr, atr)."""
         _atr = atr(df, 14).iloc[-1]
         close = df["close"].iloc[-1]
         if direction == "long":
@@ -87,7 +87,7 @@ class RiskAgent(BaseAgent):
             tp1 = close - atr_tp1_mult * _atr
             tp2 = close - atr_tp2_mult * _atr
         rr = abs(tp1 - close) / max(abs(close - sl), 1e-10)
-        return float(sl), float(tp1), float(tp2), float(rr)
+        return float(sl), float(tp1), float(tp2), float(rr), float(_atr)
 
     def calc_position_size(self, entry: float, sl: float,
                             win_rate: float = DEFAULT_WIN_RATE,
@@ -116,7 +116,7 @@ class RiskAgent(BaseAgent):
             return None
 
         win_rate = self.get_win_rate(symbol, interval)
-        sl, tp1, tp2, rr = self.calc_levels(df, direction)
+        sl, tp1, tp2, rr, atr_value = self.calc_levels(df, direction)
         entry = float(df["close"].iloc[-1])
         kelly = self.kelly_fraction(win_rate, rr)
         size = self.calc_position_size(entry, sl, win_rate, rr, regime=regime)
@@ -151,6 +151,7 @@ class RiskAgent(BaseAgent):
                 "tp1": tp1,
                 "tp2": tp2,
                 "rr": rr,
+                "atr": atr_value,
                 "kelly": kelly,
                 "size": size,
                 "win_rate": win_rate,
