@@ -279,7 +279,9 @@ class ExecutionEngine:
 
             if not self.paper_trading and not from_exchange:
                 side = "SELL" if pos.direction == "long" else "BUY"
-                place_futures_order(pos.symbol, side, "MARKET", pos.size, reduce_only=True)
+                close_order = place_futures_order(pos.symbol, side, "MARKET", pos.size, reduce_only=True)
+                if close_order is None:
+                    logger.warning(f"Failed to place reduce-only close order for {pos.symbol}")
 
             return pos
 
@@ -398,9 +400,9 @@ class ExecutionEngine:
             return closed_positions
 
         remaining = max(float(quantity or 0.0), 0.0)
-        close_all = remaining <= 0.0
+        apply_to_all_candidates = remaining <= 0.0
         for pos_id, pos in candidates:
-            close_qty = pos.size if close_all else min(pos.size, remaining)
+            close_qty = pos.size if apply_to_all_candidates else min(pos.size, remaining)
             if close_qty <= 0:
                 continue
 
@@ -436,7 +438,7 @@ class ExecutionEngine:
                     f"PnL={partial_pnl:+.4f} ({order_type})"
                 )
 
-            if not close_all:
+            if not apply_to_all_candidates:
                 remaining -= close_qty
                 if remaining <= _POSITION_SIZE_EPSILON:
                     break
@@ -478,9 +480,11 @@ class ExecutionEngine:
                             f"(PnL={close_pnl:+.4f}), SL to breakeven"
                         )
                         if not self.paper_trading:
-                            place_futures_order(
+                            partial_order = place_futures_order(
                                 pos.symbol, "SELL", "MARKET", close_size, reduce_only=True
                             )
+                            if partial_order is None:
+                                logger.warning(f"Failed to place TP1 partial reduce-only order for {pos.symbol}")
                     elif pos.tp1_hit and not pos.tp2_hit and current_price >= pos.tp2:
                         pos.tp2_hit = True
                         to_close.append((pos_id, current_price, "tp2_hit"))
@@ -505,9 +509,11 @@ class ExecutionEngine:
                             f"(PnL={close_pnl:+.4f}), SL to breakeven"
                         )
                         if not self.paper_trading:
-                            place_futures_order(
+                            partial_order = place_futures_order(
                                 pos.symbol, "BUY", "MARKET", close_size, reduce_only=True
                             )
+                            if partial_order is None:
+                                logger.warning(f"Failed to place TP1 partial reduce-only order for {pos.symbol}")
                     elif pos.tp1_hit and not pos.tp2_hit and current_price <= pos.tp2:
                         pos.tp2_hit = True
                         to_close.append((pos_id, current_price, "tp2_hit"))

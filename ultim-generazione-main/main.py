@@ -650,7 +650,10 @@ def main():
                 except Exception:
                     logger.warning("User Data Stream event queue full - dropping oldest event")
                     try:
-                        _ = user_data_events.get_nowait()
+                        dropped_event = user_data_events.get_nowait()
+                        logger.warning(
+                            f"User Data Stream dropped queued event type={str(dropped_event.get('e', 'unknown'))}"
+                        )
                         user_data_events.put_nowait(event)
                     except Exception as queue_recover_err:
                         logger.debug(f"User Data Stream queue recovery failed: {queue_recover_err}")
