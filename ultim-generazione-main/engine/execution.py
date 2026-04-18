@@ -34,6 +34,9 @@ else:
 _TRAIL_PCT_AT_TP1 = 0.006
 _TRAIL_PCT_AT_TP2 = 0.002
 _MIN_TRAIL_DISTANCE = 1e-9
+# ATR-based trailing scales from 1.2x ATR near TP1 to 0.6x ATR near TP2.
+_ATR_TRAIL_MULT_AT_TP1 = 1.2
+_ATR_TRAIL_MULT_AT_TP2 = 0.6
 if _TRAIL_PCT_AT_TP2 >= _TRAIL_PCT_AT_TP1:
     raise ValueError("Dynamic trailing requires _TRAIL_PCT_AT_TP2 < _TRAIL_PCT_AT_TP1")
 
@@ -61,7 +64,6 @@ class Position:
     pnl: Optional[float] = None
     status: str = "open"   # "open" | "closed" | "sl_hit" | "tp1_hit" | "tp2_hit"
     tp1_hit: bool = False
-    is_tp1_hit: bool = False
     tp2_hit: bool = False
     realized_pnl: float = 0.0
     initial_size: Optional[float] = None
@@ -71,12 +73,18 @@ class Position:
     paper: bool = True
 
     def __post_init__(self) -> None:
-        self.tp1_hit = bool(self.tp1_hit or self.is_tp1_hit)
-        self.is_tp1_hit = self.tp1_hit
         if self.initial_size is None:
             self.initial_size = self.size
         if self.initial_sl is None:
             self.initial_sl = self.sl
+
+    @property
+    def is_tp1_hit(self) -> bool:
+        return self.tp1_hit
+
+    @is_tp1_hit.setter
+    def is_tp1_hit(self, value: bool) -> None:
+        self.tp1_hit = bool(value)
 
     def unrealised_pnl(self, current_price: float) -> float:
         if self.direction == "long":
@@ -101,7 +109,7 @@ class Position:
             "pnl": self.pnl,
             "status": self.status,
             "tp1_hit": self.tp1_hit,
-            "is_tp1_hit": self.is_tp1_hit,
+            "is_tp1_hit": self.tp1_hit,
             "tp2_hit": self.tp2_hit,
             "initial_size": self.initial_size,
             "initial_sl": self.initial_sl,
@@ -357,8 +365,9 @@ class ExecutionEngine:
                 f"Invalid TP configuration for dynamic trailing [{pos.position_id}] "
                 f"{pos.symbol}: tp1={pos.tp1:.4f}, tp2={pos.tp2:.4f}"
             )
-            progress = 1.0
-            trail_pct = _TRAIL_PCT_AT_TP2
+            # Fallback to "TP1 stage" behavior (widest trail) when TP geometry is invalid.
+            progress = 0.0
+            trail_pct = _TRAIL_PCT_AT_TP1
         else:
             if pos.direction == "long":
                 progress = max(0.0, min(1.0, (current_price - pos.tp1) / move_total))
@@ -372,8 +381,15 @@ class ExecutionEngine:
         # widen stop when initial ATR is high; tighten as price progresses to TP2.
         atr_ref = float(abs(pos.initial_atr or 0.0))
         if atr_ref <= 0.0:
-            atr_ref = abs(pos.entry_price - float(pos.initial_sl or pos.sl))
-        atr_distance = atr_ref * (1.2 - 0.6 * progress)
+            atr_ref = abs(pos.entry_price - pos.initial_sl)
+            logger.debug(
+                f"ATR fallback for trailing [{pos.position_id}] {pos.symbol}: "
+                f"using entry/SL distance {atr_ref:.6f}"
+            )
+        atr_mult = _ATR_TRAIL_MULT_AT_TP1 + (
+            (_ATR_TRAIL_MULT_AT_TP2 - _ATR_TRAIL_MULT_AT_TP1) * progress
+        )
+        atr_distance = atr_ref * atr_mult
         pct_distance = current_price * trail_pct
         return max((atr_distance + pct_distance) * 0.5, _MIN_TRAIL_DISTANCE)
 
