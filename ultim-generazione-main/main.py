@@ -747,7 +747,7 @@ def main():
 
         register_callbacks(on_closed=ws_on_closed, on_update=ws_on_update)
 
-        monitored_symbols = list(set(symbols_whitelist + symbols_hg_all))
+        monitored_symbols = list(dict.fromkeys(symbols_whitelist + symbols_hg_all))
         threading.Thread(
             target=start_dashboard_server,
             kwargs={
