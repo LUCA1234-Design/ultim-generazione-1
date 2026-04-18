@@ -26,7 +26,7 @@ from data.binance_client import place_futures_order
 from memory import experience_db
 
 logger = logging.getLogger("Execution")
-_POSITION_SIZE_EPSILON = 1e-12
+_POSITION_SIZE_EPSILON = 1e-8
 
 # Maximum age per interval before a position is force-closed (in seconds)
 if TRAINING_MODE:
@@ -429,7 +429,6 @@ class ExecutionEngine:
                     pos.size = max(pos.size - close_qty, 0.0)
                     if "TAKE_PROFIT" in order_type and not pos.tp1_hit:
                         pos.tp1_hit = True
-                        pos.is_tp1_hit = True
                         pos.sl = pos.entry_price
                 logger.info(
                     f"🎯 LIVE PARTIAL CLOSE [{pos.position_id}] {pos.symbol} "

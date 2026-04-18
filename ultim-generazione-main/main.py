@@ -642,7 +642,7 @@ def main():
 
         # ---- Private User Data Stream (LIVE only) ----
         if not PAPER_TRADING:
-            user_data_events: "Queue[Dict[str, Any]]" = Queue(maxsize=5000)
+            user_data_events: "Queue[Dict[str, Any]]" = Queue(maxsize=500)
 
             def _on_user_event(event: Dict[str, Any]) -> None:
                 try:

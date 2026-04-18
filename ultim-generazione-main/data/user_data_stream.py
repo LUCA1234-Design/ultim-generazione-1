@@ -21,7 +21,9 @@ logger = logging.getLogger("UserDataStream")
 
 _REST_BASE = "https://fapi.binance.com"
 _WS_BASE = "wss://fstream.binance.com/ws"
-_MIN_KEEPALIVE_INTERVAL_SEC = 30 * 60
+# Binance requires keepalive at least once every 60 minutes.
+# Use a safer 30-minute cadence by default.
+_KEEPALIVE_INTERVAL_SEC = 30 * 60
 
 
 class UserDataStreamManager:
@@ -44,7 +46,7 @@ class UserDataStreamManager:
         self._api_secret = (api_secret if api_secret is not None else API_SECRET or "").strip()
         self._rest_base_url = rest_base_url.rstrip("/")
         self._ws_base_url = ws_base_url.rstrip("/")
-        self._keepalive_interval_sec = max(_MIN_KEEPALIVE_INTERVAL_SEC, int(keepalive_interval_sec))
+        self._keepalive_interval_sec = max(_KEEPALIVE_INTERVAL_SEC, int(keepalive_interval_sec))
         self._request_timeout_sec = max(1.0, float(request_timeout_sec))
         self._reconnect_delay_sec = max(1, int(reconnect_delay_sec))
         self._max_reconnect_delay_sec = max(self._reconnect_delay_sec, int(max_reconnect_delay_sec))
@@ -207,11 +209,16 @@ class UserDataStreamManager:
             def _on_close(_ws, _code, _msg) -> None:
                 logger.info("User Data WS closed")
 
+            def _on_open(_ws) -> None:
+                nonlocal delay
+                delay = self._reconnect_delay_sec
+
             ws_app = websocket.WebSocketApp(
                 ws_url,
                 on_message=_on_message,
                 on_error=_on_error,
                 on_close=_on_close,
+                on_open=_on_open,
             )
 
             with self._state_lock:
