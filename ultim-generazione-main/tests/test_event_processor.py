@@ -122,6 +122,7 @@ def test_on_candle_close_allows_trade_when_correlation_data_is_missing_or_too_sh
     fusion._threshold = 0.5
 
     processor = _make_processor(execution, fusion)
+    processor.volume_trigger.confirm = MagicMock(return_value=(True, {"imbalance": 0.2}))
 
     base_close = pd.Series(range(1, 121), dtype=float)
     frames = {
@@ -143,6 +144,52 @@ def test_on_candle_close_allows_trade_when_correlation_data_is_missing_or_too_sh
 
     assert result is not None
     execution.open_position.assert_called_once()
+
+
+def test_on_candle_close_skips_trade_when_micro_momentum_is_weak(monkeypatch):
+    execution = MagicMock()
+    execution.get_open_positions.return_value = []
+    execution.is_risk_blocked.return_value = (False, "")
+    execution.open_position.return_value = SimpleNamespace(position_id="p1")
+
+    fusion = MagicMock()
+    fusion.fuse.return_value = FusionResult(
+        decision_id="d3",
+        symbol="SOLUSDT",
+        interval="1h",
+        decision="long",
+        final_score=0.9,
+        direction="long",
+        agent_scores={},
+        agent_results={},
+        threshold=0.5,
+        reasoning=[],
+    )
+    fusion._threshold = 0.5
+
+    processor = _make_processor(execution, fusion)
+    processor.volume_trigger.confirm = MagicMock(return_value=(False, {"imbalance": -0.1}))
+
+    base_close = pd.Series(range(1, 121), dtype=float)
+    frames = {
+        ("SOLUSDT", "1h"): pd.DataFrame({"close": base_close}),
+        ("BTCUSDT", "1h"): pd.DataFrame({"close": base_close}),
+    }
+
+    monkeypatch.setattr("engine.event_processor.data_store.update_realtime", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        "engine.event_processor.data_store.get_df",
+        lambda symbol, interval: frames.get((symbol, interval)),
+    )
+    monkeypatch.setattr(processor, "_is_forbidden_hour", lambda: False)
+    monkeypatch.setattr(processor, "_is_signal_cooled", lambda _symbol, _interval: True)
+    monkeypatch.setattr(processor, "_is_optimal_hour", lambda: True)
+
+    result = processor.on_candle_close("SOLUSDT", "1h", {"close": 120.0})
+
+    assert result is None
+    execution.open_position.assert_not_called()
+    assert processor.get_stats()["skip_reasons"]["weak_micro_momentum"] == 1
 
 
 def test_correlation_check_does_not_block_at_exact_threshold(monkeypatch):

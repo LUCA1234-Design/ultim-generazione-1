@@ -5,11 +5,13 @@ Provides a singleton client with futures-specific helpers.
 import logging
 import time
 from binance.client import Client
+import requests
 from config.settings import API_KEY, API_SECRET
 
 logger = logging.getLogger("BinanceClient")
 
 _client_instance = None
+_FUTURES_REST_BASE = "https://fapi.binance.com"
 
 
 def get_client() -> Client:
@@ -62,6 +64,28 @@ def fetch_futures_ticker():
     except Exception as e:
         logger.error(f"fetch_futures_ticker: {e}")
         return []
+
+
+def fetch_futures_depth(symbol: str, limit: int = 10, timeout: float = 0.35) -> dict:
+    """Fetch a shallow futures order book snapshot quickly via REST."""
+    resp = None
+    try:
+        resp = requests.get(
+            f"{_FUTURES_REST_BASE}/fapi/v1/depth",
+            params={"symbol": symbol, "limit": int(limit)},
+            timeout=float(timeout),
+        )
+        resp.raise_for_status()
+        payload = resp.json()
+        if isinstance(payload, dict):
+            return payload
+    except Exception as e:
+        status_code = getattr(resp, "status_code", "n/a")
+        logger.debug(
+            f"fetch_futures_depth {symbol} failed "
+            f"(type={type(e).__name__}, status={status_code}): {e}"
+        )
+    return {}
 
 
 def place_futures_order(symbol: str, side: str, order_type: str = "MARKET",

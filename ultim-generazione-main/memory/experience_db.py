@@ -288,15 +288,25 @@ def get_win_rate_by_interval(interval: str) -> Optional[float]:
     return None
 
 
-def get_completed_trade_count() -> int:
-    """Return the total number of completed trades (those with a non-null pnl)."""
+def get_completed_trade_count(paper_only: Optional[bool] = None) -> int:
+    """Return the number of completed trades (those with non-null pnl).
+
+    Args:
+        paper_only:
+            - True: count only paper trades
+            - False: count only live trades
+            - None: count all trades
+    """
     if _conn is None:
         return 0
     with _lock:
         try:
-            row = _conn.execute(
-                "SELECT COUNT(*) AS cnt FROM trade_outcomes WHERE pnl IS NOT NULL"
-            ).fetchone()
+            query = "SELECT COUNT(*) AS cnt FROM trade_outcomes WHERE pnl IS NOT NULL"
+            params = ()
+            if paper_only is not None:
+                query += " AND paper=?"
+                params = (int(paper_only),)
+            row = _conn.execute(query, params).fetchone()
             if row:
                 return int(row["cnt"])
         except Exception as e:
