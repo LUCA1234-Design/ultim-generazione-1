@@ -27,6 +27,7 @@ import numpy as np
 from memory import experience_db
 from evolution.strategy_evolver import StrategyEvolver
 from evolution.confluence_adapter import ConfluenceAdapter
+from notifications.telegram_service import send_message
 
 logger = logging.getLogger("EvolutionEngine")
 
@@ -220,6 +221,18 @@ class EvolutionEngine:
                 if weight_map:
                     self._fusion.update_weights(weight_map)
                     logger.info(f"🎚️ EvolutionEngine: agent weights updated → {{weight_map}}")
+                    weights_lines = "\n".join(
+                        f"• {agent}: {weight:.2f}" for agent, weight in weight_map.items()
+                    )
+                    msg = (
+                        "🧠 *AUTO-APPRENDIMENTO V17*\n"
+                        "I pesi degli agenti sono stati ricalibrati:\n"
+                        f"{weights_lines}"
+                    )
+                    try:
+                        send_message(msg)
+                    except Exception as e:
+                        logger.error(f"EvolutionEngine telegram weight notification error: {e}")
             except Exception as exc:
                 logger.error(f"EvolutionEngine weight_update error: {exc}")
 
@@ -342,6 +355,15 @@ class EvolutionEngine:
                     f"🔧 Auto-tune: win_rate={{win_rate:.1%}} → "
                     f"threshold {{current:.3f}} → {{new_threshold:.3f}}"
                 )
+                msg = (
+                    "🔧 *AUTO-TUNE V17*\n"
+                    f"Win Rate recente: {win_rate:.1%}\n"
+                    f"Soglia precisione: {current:.3f} ➡️ {new_threshold:.3f}"
+                )
+                try:
+                    send_message(msg)
+                except Exception as e:
+                    logger.error(f"EvolutionEngine telegram auto-tune notification error: {e}")
 
             self._fusion._threshold = new_threshold
             experience_db.save_param("fusion_threshold", new_threshold, "auto_tune")
