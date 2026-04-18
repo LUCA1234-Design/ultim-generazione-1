@@ -4,6 +4,7 @@ Transforms V16 "Cecchino Istituzionale" into a multi-agent adaptive system.
 """
 import gc
 import logging
+from queue import Empty, Queue
 import sys
 import threading
 import time
@@ -32,6 +33,7 @@ from data.websocket_manager import (
     start_websockets, startup_health_check, start_rest_fallback,
     register_callbacks,
 )
+from data.user_data_stream import UserDataStreamManager
 
 # ---- Indicators (imported so available globally) ----
 import indicators.technical  # noqa
@@ -291,114 +293,157 @@ def _position_monitor(
                 closed_positions = processor.execution.check_position_levels(pos.symbol, current_price)
 
                 for closed in closed_positions:
-                    # Track performance
-                    try:
-                        tracker.record_position(closed)
-                    except Exception as e:
-                        logger.error(f"tracker.record_position error: {e}")
-
-                    # Notify close
-                    try:
-                        notify_position_closed(closed)
-                    except Exception as e:
-                        logger.error(f"notify_position_closed error: {e}")
-
-                    # Update decision outcome in DB
-                    try:
-                        if closed.decision_id:
-                            experience_db.update_decision_outcome(
-                                decision_id=closed.decision_id,
-                                outcome=closed.status,
-                                pnl=closed.pnl or 0.0,
-                            )
-                    except Exception as e:
-                        logger.error(f"update_decision_outcome error: {e}")
-
-                    # After updating decision outcome, adapt the fusion threshold
-                    try:
-                        correct = (closed.pnl or 0.0) > 0
-                        processor.fusion.adapt_threshold(correct, 0.0)
-                    except Exception as e:
-                        logger.error(f"adapt_threshold error: {e}")
-
-                    # Save agent outcomes in DB
-                    try:
-                        ctx = decision_context.get(closed.decision_id, {})
-                        agent_scores = ctx.get("agent_scores", {})
-                        agent_directions = ctx.get("agent_directions", {})
-                        correct = (closed.pnl or 0.0) > 0
-
-                        # Extract pattern tags for the pattern agent row
-                        pattern_tags = ""
-                        pattern_ctx = ctx.get("agent_results", {}).get("pattern")
-                        if pattern_ctx and hasattr(pattern_ctx, "details"):
-                            pattern_tags = ",".join(str(d) for d in list(pattern_ctx.details)[:10])
-
-                        for agent_name, score in agent_scores.items():
-                            experience_db.save_agent_outcome(
-                                decision_id=closed.decision_id,
-                                agent_name=agent_name,
-                                score=float(score),
-                                direction=str(agent_directions.get(agent_name, "")),
-                                correct=correct,
-                                pattern_tags=pattern_tags if agent_name == "pattern" else "",
-                            )
-                    except Exception as e:
-                        logger.error(f"save_agent_outcome error: {e}")
-
-                    # Update StrategyAgent with trade outcome (Fix 4)
-                    try:
-                        strategy_name = closed.strategy
-                        if strategy_name:
-                            processor.strategy.update_strategy_outcome(
-                                strategy_name,
-                                was_profitable=(closed.pnl or 0) > 0,
-                            )
-                    except Exception as e:
-                        logger.error(f"update_strategy_outcome error: {e}")
-
-                    # Record outcome in MetaAgent for weight adjustment (Fix 8)
-                    try:
-                        ctx = decision_context.get(closed.decision_id, {})
-                        stored_agent_results = ctx.get("agent_results", {})
-                        regime = ctx.get("regime", "unknown")
-                        if stored_agent_results and hasattr(processor.meta, "record_outcome"):
-                            was_correct = (closed.pnl or 0.0) > 0
-                            processor.meta.record_outcome(
-                                closed.decision_id,
-                                stored_agent_results,
-                                was_correct,
-                                regime=regime,
-                            )
-                    except Exception as e:
-                        logger.error(f"meta.record_outcome error: {e}")
-
-                    # Clean runtime context
-                    try:
-                        if closed.decision_id in decision_context:
-                            decision_context.pop(closed.decision_id, None)
-                    except Exception as e:
-                        logger.debug(f"decision_context cleanup error: {e}")
-
-                    # Notify evolution engine of closed trade (loops #5 & #7)
-                    try:
-                        if evolution_engine is not None:
-                            ctx = decision_context.get(
-                                getattr(closed, "decision_id", None), {}
-                            )
-                            # Also try the processor's own context store
-                            if not ctx and hasattr(processor, "get_decision_context"):
-                                ctx = processor.get_decision_context(
-                                    getattr(closed, "decision_id", None)
-                                ) or {}
-                            evolution_engine.on_trade_close(closed, ctx)
-                    except Exception as e:
-                        logger.error(f"evolution_engine.on_trade_close error: {e}")
+                    _handle_closed_position(
+                        closed=closed,
+                        processor=processor,
+                        tracker=tracker,
+                        decision_context=decision_context,
+                        evolution_engine=evolution_engine,
+                    )
 
         except Exception as e:
             logger.debug(f"position_monitor error: {e}")
 
         time.sleep(interval_sec)
+
+
+def _handle_closed_position(
+    closed,
+    processor: EventProcessor,
+    tracker: PerformanceTracker,
+    decision_context: Dict[str, Dict[str, Any]],
+    evolution_engine: Optional["EvolutionEngine"] = None,
+) -> None:
+    """Apply side-effects after a position closes (stats, DB, notifications, feedback loops)."""
+    # Track performance
+    try:
+        tracker.record_position(closed)
+    except Exception as e:
+        logger.error(f"tracker.record_position error: {e}")
+
+    # Notify close
+    try:
+        notify_position_closed(closed)
+    except Exception as e:
+        logger.error(f"notify_position_closed error: {e}")
+
+    # Update decision outcome in DB
+    try:
+        if closed.decision_id:
+            experience_db.update_decision_outcome(
+                decision_id=closed.decision_id,
+                outcome=closed.status,
+                pnl=closed.pnl or 0.0,
+            )
+    except Exception as e:
+        logger.error(f"update_decision_outcome error: {e}")
+
+    # After updating decision outcome, adapt the fusion threshold
+    try:
+        correct = (closed.pnl or 0.0) > 0
+        processor.fusion.adapt_threshold(correct, 0.0)
+    except Exception as e:
+        logger.error(f"adapt_threshold error: {e}")
+
+    # Save agent outcomes in DB
+    try:
+        ctx = decision_context.get(closed.decision_id, {})
+        agent_scores = ctx.get("agent_scores", {})
+        agent_directions = ctx.get("agent_directions", {})
+        correct = (closed.pnl or 0.0) > 0
+
+        # Extract pattern tags for the pattern agent row
+        pattern_tags = ""
+        pattern_ctx = ctx.get("agent_results", {}).get("pattern")
+        if pattern_ctx and hasattr(pattern_ctx, "details"):
+            pattern_tags = ",".join(str(d) for d in list(pattern_ctx.details)[:10])
+
+        for agent_name, score in agent_scores.items():
+            experience_db.save_agent_outcome(
+                decision_id=closed.decision_id,
+                agent_name=agent_name,
+                score=float(score),
+                direction=str(agent_directions.get(agent_name, "")),
+                correct=correct,
+                pattern_tags=pattern_tags if agent_name == "pattern" else "",
+            )
+    except Exception as e:
+        logger.error(f"save_agent_outcome error: {e}")
+
+    # Update StrategyAgent with trade outcome
+    try:
+        strategy_name = closed.strategy
+        if strategy_name:
+            processor.strategy.update_strategy_outcome(
+                strategy_name,
+                was_profitable=(closed.pnl or 0) > 0,
+            )
+    except Exception as e:
+        logger.error(f"update_strategy_outcome error: {e}")
+
+    # Record outcome in MetaAgent for weight adjustment
+    try:
+        ctx = decision_context.get(closed.decision_id, {})
+        stored_agent_results = ctx.get("agent_results", {})
+        regime = ctx.get("regime", "unknown")
+        if stored_agent_results and hasattr(processor.meta, "record_outcome"):
+            was_correct = (closed.pnl or 0.0) > 0
+            processor.meta.record_outcome(
+                closed.decision_id,
+                stored_agent_results,
+                was_correct,
+                regime=regime,
+            )
+    except Exception as e:
+        logger.error(f"meta.record_outcome error: {e}")
+
+    # Clean runtime context
+    try:
+        if closed.decision_id in decision_context:
+            decision_context.pop(closed.decision_id, None)
+    except Exception as e:
+        logger.debug(f"decision_context cleanup error: {e}")
+
+    # Notify evolution engine of closed trade
+    try:
+        if evolution_engine is not None:
+            ctx = decision_context.get(getattr(closed, "decision_id", None), {})
+            if not ctx and hasattr(processor, "get_decision_context"):
+                ctx = processor.get_decision_context(getattr(closed, "decision_id", None)) or {}
+            evolution_engine.on_trade_close(closed, ctx)
+    except Exception as e:
+        logger.error(f"evolution_engine.on_trade_close error: {e}")
+
+
+def _user_data_event_consumer(
+    processor: EventProcessor,
+    tracker: PerformanceTracker,
+    decision_context: Dict[str, Dict[str, Any]],
+    event_queue: "Queue[Dict[str, Any]]",
+    evolution_engine: Optional["EvolutionEngine"] = None,
+) -> None:
+    """Consume private User Data Stream events and apply immediate execution updates."""
+    while True:
+        try:
+            event = event_queue.get(timeout=1.0)
+        except Empty:
+            continue
+        except Exception as e:
+            logger.debug(f"user_data_event_consumer queue error: {e}")
+            continue
+
+        try:
+            closed_positions = processor.execution.process_user_stream_event(event)
+            for closed in closed_positions:
+                _handle_closed_position(
+                    closed=closed,
+                    processor=processor,
+                    tracker=tracker,
+                    decision_context=decision_context,
+                    evolution_engine=evolution_engine,
+                )
+        except Exception as e:
+            logger.error(f"user_data_event_consumer processing error: {e}")
 
 
 # ---------------------------------------------------------------------------
@@ -503,6 +548,7 @@ def _report_loop(processor: EventProcessor, tracker: PerformanceTracker,
 
 def main():
     sentiment_agent: Optional[SentimentAgent] = None
+    user_data_stream: Optional[UserDataStreamManager] = None
     logger.info("=" * 60)
     logger.info("🤖 V17 AGENTIC AI TRADING SYSTEM")
     logger.info("=" * 60)
@@ -594,6 +640,36 @@ def main():
 
         register_callbacks(on_closed=ws_on_closed, on_update=ws_on_update)
 
+        # ---- Private User Data Stream (LIVE only) ----
+        if not PAPER_TRADING:
+            user_data_events: "Queue[Dict[str, Any]]" = Queue(maxsize=5000)
+
+            def _on_user_event(event: Dict[str, Any]) -> None:
+                try:
+                    user_data_events.put_nowait(event)
+                except Exception:
+                    logger.warning("User Data Stream event queue full — dropping oldest event")
+                    try:
+                        _ = user_data_events.get_nowait()
+                        user_data_events.put_nowait(event)
+                    except Exception:
+                        pass
+
+            user_data_stream = UserDataStreamManager(on_event=_on_user_event)
+            uds_started = user_data_stream.start()
+            if uds_started:
+                threading.Thread(
+                    target=_user_data_event_consumer,
+                    args=(processor, tracker, decision_context, user_data_events, evolution_engine),
+                    daemon=True,
+                    name="UserDataConsumer",
+                ).start()
+                logger.info("⚡ User Data Stream active: execution updates now event-driven")
+            else:
+                logger.warning("⚠️ User Data Stream unavailable — continuing with polling/market data path")
+        else:
+            logger.info("ℹ️ User Data Stream skipped in PAPER_TRADING mode")
+
         # ---- Start WebSockets ----
         start_websockets(all_symbols, timeframes=["15m", "1h", "4h"])
 
@@ -655,6 +731,11 @@ def main():
                     sentiment_agent.stop()
             except Exception as _sentiment_stop_err:
                 logger.error(f"Sentiment agent stop error: {_sentiment_stop_err}")
+            try:
+                if user_data_stream is not None:
+                    user_data_stream.stop()
+            except Exception as _user_stream_stop_err:
+                logger.error(f"User Data Stream stop error: {_user_stream_stop_err}")
             try:
                 evolution_engine.shutdown()
             except Exception as _se:
@@ -731,6 +812,11 @@ def main():
         except Exception as e:
             logger.error(f"sentiment_agent.stop error: {e}")
         try:
+            if user_data_stream is not None:
+                user_data_stream.stop()
+        except Exception as e:
+            logger.error(f"user_data_stream.stop error: {e}")
+        try:
             evolution_engine.shutdown()
         except Exception as e:
             logger.error(f"evolution_engine.shutdown error: {e}")
@@ -752,6 +838,11 @@ def main():
         logger.critical("=" * 60)
         import traceback
         traceback.print_exc()
+        try:
+            if user_data_stream is not None:
+                user_data_stream.stop()
+        except Exception as _uds_fatal_stop:
+            logger.error(f"user_data_stream.stop on fatal error: {_uds_fatal_stop}")
         try:
             send_message(f"🔴 V17 FATAL ERROR\n\n{str(e)[:300]}")
         except Exception:

@@ -180,3 +180,86 @@ class TestExecutionEngineScaleOutAndTrailing:
         d_low = engine._dynamic_trail_distance(low_atr, 112.0)
         d_high = engine._dynamic_trail_distance(high_atr, 112.0)
         assert d_high > d_low
+
+    def test_user_stream_reduce_only_partial_then_full_close(self, monkeypatch):
+        monkeypatch.setattr(
+            "engine.execution.place_futures_order",
+            lambda *args, **kwargs: {"ok": True},
+        )
+        engine = ExecutionEngine(paper_trading=False, initial_balance=1000.0)
+        pos = engine.open_position(
+            symbol="BTCUSDT",
+            interval="1h",
+            direction="long",
+            entry_price=100.0,
+            size=2.0,
+            sl=95.0,
+            tp1=110.0,
+            tp2=120.0,
+        )
+        assert pos is not None
+
+        partial_closed = engine.process_user_stream_event({
+            "e": "ORDER_TRADE_UPDATE",
+            "o": {
+                "s": "BTCUSDT",
+                "S": "SELL",
+                "X": "FILLED",
+                "x": "TRADE",
+                "o": "TAKE_PROFIT_MARKET",
+                "R": True,
+                "l": "1",
+                "ap": "110",
+            },
+        })
+        assert partial_closed == []
+        assert pos.size == pytest.approx(1.0)
+        assert pos.tp1_hit is True
+        assert engine.get_stats()["open_positions"] == 1
+
+        final_closed = engine.process_user_stream_event({
+            "e": "ORDER_TRADE_UPDATE",
+            "o": {
+                "s": "BTCUSDT",
+                "S": "SELL",
+                "X": "FILLED",
+                "x": "TRADE",
+                "o": "TAKE_PROFIT_MARKET",
+                "R": True,
+                "l": "1",
+                "ap": "120",
+            },
+        })
+        assert len(final_closed) == 1
+        assert final_closed[0].status == "tp2_hit"
+        assert engine.get_stats()["open_positions"] == 0
+
+    def test_user_stream_account_update_flat_closes_symbol_positions(self, monkeypatch):
+        monkeypatch.setattr(
+            "engine.execution.place_futures_order",
+            lambda *args, **kwargs: {"ok": True},
+        )
+        engine = ExecutionEngine(paper_trading=False, initial_balance=1000.0)
+        pos = engine.open_position(
+            symbol="ETHUSDT",
+            interval="1h",
+            direction="short",
+            entry_price=200.0,
+            size=1.0,
+            sl=210.0,
+            tp1=190.0,
+            tp2=180.0,
+        )
+        assert pos is not None
+
+        closed = engine.process_user_stream_event({
+            "e": "ACCOUNT_UPDATE",
+            "a": {
+                "P": [
+                    {"s": "ETHUSDT", "pa": "0", "ep": "195"},
+                ]
+            },
+        })
+        assert len(closed) == 1
+        assert closed[0].status == "account_update_flat"
+        assert engine.get_stats()["open_positions"] == 0
