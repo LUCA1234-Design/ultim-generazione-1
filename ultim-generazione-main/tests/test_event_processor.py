@@ -192,6 +192,102 @@ def test_on_candle_close_skips_trade_when_micro_momentum_is_weak(monkeypatch):
     assert processor.get_stats()["skip_reasons"]["weak_micro_momentum"] == 1
 
 
+def test_on_candle_close_skips_long_when_sentiment_is_highly_negative(monkeypatch):
+    execution = MagicMock()
+    execution.get_open_positions.return_value = []
+    execution.is_risk_blocked.return_value = (False, "")
+    execution.open_position.return_value = SimpleNamespace(position_id="p1")
+
+    fusion = MagicMock()
+    fusion.fuse.return_value = FusionResult(
+        decision_id="d4",
+        symbol="SOLUSDT",
+        interval="1h",
+        decision="long",
+        final_score=0.9,
+        direction="long",
+        agent_scores={},
+        agent_results={},
+        threshold=0.5,
+        reasoning=[],
+    )
+    fusion._threshold = 0.5
+
+    processor = _make_processor(execution, fusion)
+    processor.fusion.memory_manager = MagicMock()
+    processor.fusion.memory_manager.get_sentiment_score.return_value = -0.8
+    processor.volume_trigger.confirm = MagicMock(return_value=(True, {"imbalance": 0.3}))
+
+    base_close = pd.Series(range(1, 121), dtype=float)
+    frames = {
+        ("SOLUSDT", "1h"): pd.DataFrame({"close": base_close}),
+        ("BTCUSDT", "1h"): pd.DataFrame({"close": base_close}),
+    }
+
+    monkeypatch.setattr("engine.event_processor.data_store.update_realtime", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        "engine.event_processor.data_store.get_df",
+        lambda symbol, interval: frames.get((symbol, interval)),
+    )
+    monkeypatch.setattr(processor, "_is_forbidden_hour", lambda: False)
+    monkeypatch.setattr(processor, "_is_signal_cooled", lambda _symbol, _interval: True)
+    monkeypatch.setattr(processor, "_is_optimal_hour", lambda: True)
+
+    result = processor.on_candle_close("SOLUSDT", "1h", {"close": 120.0})
+
+    assert result is None
+    execution.open_position.assert_not_called()
+    assert processor.get_stats()["skip_reasons"]["negative_news_sentiment"] == 1
+
+
+def test_on_candle_close_skips_short_when_sentiment_is_highly_positive(monkeypatch):
+    execution = MagicMock()
+    execution.get_open_positions.return_value = []
+    execution.is_risk_blocked.return_value = (False, "")
+    execution.open_position.return_value = SimpleNamespace(position_id="p1")
+
+    fusion = MagicMock()
+    fusion.fuse.return_value = FusionResult(
+        decision_id="d5",
+        symbol="SOLUSDT",
+        interval="1h",
+        decision="short",
+        final_score=0.9,
+        direction="short",
+        agent_scores={},
+        agent_results={},
+        threshold=0.5,
+        reasoning=[],
+    )
+    fusion._threshold = 0.5
+
+    processor = _make_processor(execution, fusion)
+    processor.fusion.memory_manager = MagicMock()
+    processor.fusion.memory_manager.get_sentiment_score.return_value = 0.9
+    processor.volume_trigger.confirm = MagicMock(return_value=(True, {"imbalance": -0.3}))
+
+    base_close = pd.Series(range(1, 121), dtype=float)
+    frames = {
+        ("SOLUSDT", "1h"): pd.DataFrame({"close": base_close}),
+        ("BTCUSDT", "1h"): pd.DataFrame({"close": base_close}),
+    }
+
+    monkeypatch.setattr("engine.event_processor.data_store.update_realtime", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        "engine.event_processor.data_store.get_df",
+        lambda symbol, interval: frames.get((symbol, interval)),
+    )
+    monkeypatch.setattr(processor, "_is_forbidden_hour", lambda: False)
+    monkeypatch.setattr(processor, "_is_signal_cooled", lambda _symbol, _interval: True)
+    monkeypatch.setattr(processor, "_is_optimal_hour", lambda: True)
+
+    result = processor.on_candle_close("SOLUSDT", "1h", {"close": 120.0})
+
+    assert result is None
+    execution.open_position.assert_not_called()
+    assert processor.get_stats()["skip_reasons"]["positive_news_sentiment"] == 1
+
+
 def test_correlation_check_does_not_block_at_exact_threshold(monkeypatch):
     execution = MagicMock()
     execution.get_open_positions.return_value = [SimpleNamespace(symbol="ETHUSDT", direction="long")]

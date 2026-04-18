@@ -20,6 +20,7 @@ class RedisMemoryManager:
     def __init__(self, host: str = "localhost", port: int = 6379, db: int = 0):
         self._fallback_agent_scores: Dict[Tuple[str, str], Dict[str, float]] = {}
         self._fallback_recent_fusion: Dict[Tuple[str, str], Dict[str, Any]] = {}
+        self._fallback_sentiment: Dict[str, float] = {}
         self._redis_client = None
         self._redis_available = False
 
@@ -55,6 +56,10 @@ class RedisMemoryManager:
     @staticmethod
     def _fusion_key(symbol: str, timeframe: str) -> str:
         return f"memory:fusion:{symbol}:{timeframe}:latest"
+
+    @staticmethod
+    def _sentiment_key(symbol: str) -> str:
+        return f"sentiment:{symbol}"
 
     @staticmethod
     def _dict_key(symbol: str, timeframe: str) -> Tuple[str, str]:
@@ -126,3 +131,33 @@ class RedisMemoryManager:
             logger.error(f"Redis get_recent_fusion failed, using fallback. error={exc}")
             self._redis_available = False
             return dict(fallback) if isinstance(fallback, dict) else None
+
+    def set_sentiment_score(self, symbol: str, score: float, ttl_seconds: int = 1800) -> None:
+        sentiment_score = float(score)
+        self._fallback_sentiment[str(symbol)] = sentiment_score
+        if not self._redis_available or self._redis_client is None:
+            return
+        try:
+            self._redis_client.set(
+                self._sentiment_key(symbol),
+                sentiment_score,
+                ex=max(int(ttl_seconds), 1),
+            )
+        except Exception as exc:
+            logger.error(f"Redis set_sentiment_score failed, using fallback only. error={exc}")
+            self._redis_available = False
+
+    def get_sentiment_score(self, symbol: str, default: float = 0.0) -> float:
+        fallback = float(self._fallback_sentiment.get(str(symbol), default))
+        if not self._redis_available or self._redis_client is None:
+            return fallback
+
+        try:
+            payload = self._redis_client.get(self._sentiment_key(symbol))
+            if payload is None:
+                return fallback
+            return float(payload)
+        except Exception as exc:
+            logger.error(f"Redis get_sentiment_score failed, using fallback. error={exc}")
+            self._redis_available = False
+            return fallback

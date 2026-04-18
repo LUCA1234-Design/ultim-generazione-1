@@ -33,6 +33,9 @@ def test_memory_manager_fallback_stores_and_reads_values():
     assert fusion["decision"] == "long"
     assert fusion["final_score"] == 0.91
 
+    manager.set_sentiment_score("BTCUSDT", -0.75)
+    assert manager.get_sentiment_score("BTCUSDT") == -0.75
+
 
 def test_memory_manager_uses_redis_client_when_available():
     manager = RedisMemoryManager()
@@ -49,3 +52,6 @@ def test_memory_manager_uses_redis_client_when_available():
     assert fusion["decision"] == "hold"
     assert fusion["final_score"] == 0.44
     assert "stored_at" in fusion
+
+    manager.set_sentiment_score("ETHUSDT", 0.66)
+    assert manager.get_sentiment_score("ETHUSDT") == 0.66
