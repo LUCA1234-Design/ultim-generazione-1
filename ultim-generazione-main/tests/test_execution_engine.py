@@ -7,6 +7,28 @@ from engine.execution import ExecutionEngine
 
 
 class TestExecutionEngineScaleOutAndTrailing:
+    def test_position_tracks_is_tp1_hit_and_current_size(self):
+        engine = ExecutionEngine(paper_trading=True, initial_balance=1000.0)
+        pos = engine.open_position(
+            symbol="BTCUSDT",
+            interval="1h",
+            direction="long",
+            entry_price=100.0,
+            size=2.0,
+            sl=95.0,
+            tp1=110.0,
+            tp2=120.0,
+        )
+        assert pos is not None
+        assert pos.is_tp1_hit is False
+        assert pos.size == pytest.approx(2.0)
+        assert pos.initial_size == pytest.approx(2.0)
+
+        engine.check_position_levels("BTCUSDT", 110.0)
+        assert pos.tp1_hit is True
+        assert pos.is_tp1_hit is True
+        assert pos.size == pytest.approx(1.0)
+
     def test_tp1_scale_out_realizes_pnl_and_moves_sl_to_breakeven_long(self):
         engine = ExecutionEngine(paper_trading=True, initial_balance=1000.0)
         pos = engine.open_position(
@@ -112,3 +134,33 @@ class TestExecutionEngineScaleOutAndTrailing:
         assert sl_after_88 < sl_after_tp1
         assert sl_after_rebound == pytest.approx(sl_after_88)
         assert sl_after_82 < sl_after_88
+
+    def test_dynamic_trailing_widens_with_higher_initial_atr(self):
+        engine = ExecutionEngine(paper_trading=True, initial_balance=1000.0)
+        low_atr = engine.open_position(
+            symbol="BTCUSDT",
+            interval="1h",
+            direction="long",
+            entry_price=100.0,
+            size=1.0,
+            sl=95.0,
+            tp1=110.0,
+            tp2=120.0,
+            initial_atr=1.0,
+        )
+        high_atr = engine.open_position(
+            symbol="ETHUSDT",
+            interval="1h",
+            direction="long",
+            entry_price=100.0,
+            size=1.0,
+            sl=95.0,
+            tp1=110.0,
+            tp2=120.0,
+            initial_atr=6.0,
+        )
+        assert low_atr is not None and high_atr is not None
+
+        d_low = engine._dynamic_trail_distance(low_atr, 112.0)
+        d_high = engine._dynamic_trail_distance(high_atr, 112.0)
+        assert d_high > d_low
