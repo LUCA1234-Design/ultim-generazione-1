@@ -8,7 +8,7 @@ from queue import Empty, Queue
 import sys
 import threading
 import time
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 
 # ---- Config ----
 from config.settings import (
@@ -75,6 +75,7 @@ from notifications.telegram_service import (
     build_heartbeat_message,
     notify_position_closed,
 )
+from dashboard.app import DashboardState, start_dashboard_server
 
 
 # ---- Logging ----
@@ -175,7 +176,7 @@ def preload_historical(symbols, label: str = "") -> None:
 # Agent & engine wiring
 # ---------------------------------------------------------------------------
 
-def build_system():
+def build_system(dashboard_state: Optional[DashboardState] = None):
     """Instantiate and wire all V17 components.
 
     Returns
@@ -231,6 +232,15 @@ def build_system():
         except Exception as e:
             logger.error(f"Signal enqueue error: {e}")
 
+        if dashboard_state is not None:
+            try:
+                dashboard_state.add_log(
+                    f"SIGNAL {fusion_result.symbol}/{fusion_result.interval} "
+                    f"{fusion_result.decision} score={fusion_result.final_score:.3f}"
+                )
+            except Exception as _dashboard_log_err:
+                logger.debug(f"dashboard signal log error: {_dashboard_log_err}")
+
         # Save runtime context for later close handling
         try:
             # Extract regime from agent_results
@@ -279,6 +289,7 @@ def _position_monitor(
     decision_context: Dict[str, Dict[str, Any]],
     interval_sec: int = 10,
     evolution_engine: Optional["EvolutionEngine"] = None,
+    dashboard_state: Optional[DashboardState] = None,
 ) -> None:
     """Periodically update SL/TP levels for open positions using latest prices."""
     while True:
@@ -299,6 +310,7 @@ def _position_monitor(
                         tracker=tracker,
                         decision_context=decision_context,
                         evolution_engine=evolution_engine,
+                        dashboard_state=dashboard_state,
                     )
 
         except Exception as e:
@@ -313,6 +325,7 @@ def _handle_closed_position(
     tracker: PerformanceTracker,
     decision_context: Dict[str, Dict[str, Any]],
     evolution_engine: Optional["EvolutionEngine"] = None,
+    dashboard_state: Optional[DashboardState] = None,
 ) -> None:
     """Apply side-effects after a position closes (stats, DB, notifications, feedback loops)."""
     # Track performance
@@ -326,6 +339,15 @@ def _handle_closed_position(
         notify_position_closed(closed)
     except Exception as e:
         logger.error(f"notify_position_closed error: {e}")
+
+    if dashboard_state is not None:
+        try:
+            dashboard_state.add_log(
+                f"CLOSED {closed.symbol}/{closed.interval} {closed.direction} "
+                f"status={closed.status} pnl={(closed.pnl or 0.0):+.4f}"
+            )
+        except Exception as _dashboard_close_log_err:
+            logger.debug(f"dashboard close log error: {_dashboard_close_log_err}")
 
     # Update decision outcome in DB
     try:
@@ -421,6 +443,7 @@ def _user_data_event_consumer(
     decision_context: Dict[str, Dict[str, Any]],
     event_queue: "Queue[Dict[str, Any]]",
     evolution_engine: Optional["EvolutionEngine"] = None,
+    dashboard_state: Optional[DashboardState] = None,
 ) -> None:
     """Consume private User Data Stream events and apply immediate execution updates."""
     while True:
@@ -441,6 +464,7 @@ def _user_data_event_consumer(
                     tracker=tracker,
                     decision_context=decision_context,
                     evolution_engine=evolution_engine,
+                    dashboard_state=dashboard_state,
                 )
         except Exception as e:
             logger.error(f"user_data_event_consumer processing error: {e}")
@@ -542,6 +566,86 @@ def _report_loop(processor: EventProcessor, tracker: PerformanceTracker,
         time.sleep(interval_sec)
 
 
+def _dashboard_state_snapshot(
+    processor: EventProcessor,
+    meta: MetaAgent,
+    monitored_symbols: List[str],
+) -> Dict[str, Any]:
+    stats = processor.get_stats()
+    exec_stats = stats.get("execution", {})
+    meta_report = meta.get_report(include_regime=False)
+
+    mm = getattr(getattr(processor, "fusion", None), "memory_manager", None)
+    sentiment_scores: Dict[str, float] = {}
+    if mm is not None and hasattr(mm, "get_sentiment_score"):
+        for sym in monitored_symbols:
+            score = float(mm.get_sentiment_score(sym, 0.0))
+            if abs(score) > 1e-12:
+                sentiment_scores[sym] = score
+    if len(sentiment_scores) > 20:
+        sentiment_scores = dict(
+            sorted(
+                sentiment_scores.items(),
+                key=lambda item: abs(item[1]),
+                reverse=True,
+            )[:20]
+        )
+
+    return {
+        "system_running": True,
+        "paper_trading": bool(exec_stats.get("paper_trading", PAPER_TRADING)),
+        "balance": float(exec_stats.get("balance", 0.0)),
+        "global_win_rate": float(exec_stats.get("win_rate", 0.0)),
+        "total_pnl": float(exec_stats.get("total_pnl", 0.0)),
+        "pnl_pct": float(exec_stats.get("pnl_pct", 0.0)),
+        "open_positions": int(exec_stats.get("open_positions", 0)),
+        "agent_weights": {
+            "pattern": meta_report.get("pattern", {}).get("weight"),
+            "regime": meta_report.get("regime", {}).get("weight"),
+            "confluence": meta_report.get("confluence", {}).get("weight"),
+            "risk": meta_report.get("risk", {}).get("weight"),
+            "sentiment": meta_report.get("sentiment", {}).get("weight"),
+        },
+        "last_signal": stats.get("last_signal", ""),
+        "skip_reasons": stats.get("skip_reasons", {}),
+        "sentiment_scores": sentiment_scores,
+    }
+
+
+def _dashboard_positions_snapshot(processor: EventProcessor) -> List[Dict[str, Any]]:
+    positions: List[Dict[str, Any]] = []
+    for pos in processor.execution.get_open_positions():
+        current_price: Optional[float] = None
+        try:
+            df = data_store.get_df(pos.symbol, pos.interval)
+            if df is not None and not df.empty:
+                current_price = float(df["close"].iloc[-1])
+        except Exception:
+            current_price = None
+
+        pnl = 0.0
+        if current_price is not None:
+            if pos.direction == "long":
+                pnl = (current_price - pos.entry_price) * pos.size
+            else:
+                pnl = (pos.entry_price - current_price) * pos.size
+
+        positions.append(
+            {
+                "position_id": pos.position_id,
+                "symbol": pos.symbol,
+                "interval": pos.interval,
+                "direction": pos.direction,
+                "entry_price": float(pos.entry_price),
+                "current_price": current_price,
+                "pnl": float(pnl),
+                "strategy": pos.strategy,
+                "decision_id": pos.decision_id,
+            }
+        )
+    return positions
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -549,6 +653,7 @@ def _report_loop(processor: EventProcessor, tracker: PerformanceTracker,
 def main():
     sentiment_agent: Optional[SentimentAgent] = None
     user_data_stream: Optional[UserDataStreamManager] = None
+    dashboard_state = DashboardState()
     logger.info("=" * 60)
     logger.info("🤖 V17 AGENTIC AI TRADING SYSTEM")
     logger.info("=" * 60)
@@ -597,7 +702,9 @@ def main():
                 preload_historical(hg_extra, "HG")
 
         # ---- Build V17 system ----
-        processor, meta, tracker, execution, risk_agent, strategy_agent, confluence_agent, pattern_agent, decision_context = build_system()
+        processor, meta, tracker, execution, risk_agent, strategy_agent, confluence_agent, pattern_agent, decision_context = build_system(
+            dashboard_state=dashboard_state
+        )
 
         # ---- Build & start Evolution Engine ----
         evolution_engine = EvolutionEngine(
@@ -640,6 +747,21 @@ def main():
 
         register_callbacks(on_closed=ws_on_closed, on_update=ws_on_update)
 
+        monitored_symbols = list(set(symbols_whitelist + symbols_hg_all))
+        threading.Thread(
+            target=start_dashboard_server,
+            kwargs={
+                "state_provider": lambda: _dashboard_state_snapshot(processor, meta, monitored_symbols),
+                "positions_provider": lambda: _dashboard_positions_snapshot(processor),
+                "logs_provider": dashboard_state.get_logs,
+                "host": "127.0.0.1",
+                "port": 5000,
+            },
+            daemon=True,
+            name="DashboardServer",
+        ).start()
+        dashboard_state.add_log("Dashboard server thread started on http://127.0.0.1:5000")
+
         # ---- Private User Data Stream (LIVE only) ----
         if not PAPER_TRADING:
             user_data_events: "Queue[Dict[str, Any]]" = Queue(maxsize=500)
@@ -665,7 +787,14 @@ def main():
             if uds_started:
                 threading.Thread(
                     target=_user_data_event_consumer,
-                    args=(processor, tracker, decision_context, user_data_events, evolution_engine),
+                    args=(
+                        processor,
+                        tracker,
+                        decision_context,
+                        user_data_events,
+                        evolution_engine,
+                        dashboard_state,
+                    ),
                     daemon=True,
                     name="UserDataConsumer",
                 ).start()
@@ -695,6 +824,7 @@ def main():
                 processor, tracker, decision_context,
                 interval_sec=10,
                 evolution_engine=evolution_engine,
+                dashboard_state=dashboard_state,
             ),
             daemon=True,
             name="PositionMonitor",

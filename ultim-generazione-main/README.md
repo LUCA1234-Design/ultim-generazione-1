@@ -54,6 +54,12 @@ pip install -r requirements.txt
 python main.py
 ```
 
+When running locally, the Phase 9 control room dashboard is available at:
+
+```text
+http://127.0.0.1:5000
+```
+
 Set environment variables (or use the hardcoded V16-style fallbacks):
 ```bash
 export BINANCE_API_KEY=your_key
