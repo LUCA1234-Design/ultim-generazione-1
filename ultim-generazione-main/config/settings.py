@@ -2,7 +2,40 @@
 V17 Agentic AI Trading System — Configuration
 All settings in V16 style: os.getenv with hardcoded fallbacks.
 """
+import logging
 import os
+
+logger = logging.getLogger("Settings")
+
+
+def _load_dotenv_if_present() -> None:
+    root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    dotenv_path = os.path.join(root_dir, ".env")
+    if not os.path.exists(dotenv_path):
+        return
+    try:
+        with open(dotenv_path, "r", encoding="utf-8") as env_file:
+            for raw_line in env_file:
+                line = raw_line.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, value = line.split("=", 1)
+                key = key.strip()
+                if not key:
+                    continue
+                parsed_value = value.strip()
+                if (
+                    len(parsed_value) >= 2
+                    and parsed_value[0] == parsed_value[-1]
+                    and parsed_value[0] in {'"', "'"}
+                ):
+                    parsed_value = parsed_value[1:-1]
+                os.environ.setdefault(key, parsed_value)
+    except (PermissionError, UnicodeDecodeError, OSError) as exc:
+        logger.warning(f"Failed to load .env from {dotenv_path}: {exc}")
+
+
+_load_dotenv_if_present()
 
 # ============================================================
 # API CREDENTIALS
@@ -164,6 +197,9 @@ FUSION_AGENT_WEIGHTS = {
 SENTIMENT_ENABLED = os.getenv("SENTIMENT_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
 SENTIMENT_UPDATE_INTERVAL_SECONDS = int(os.getenv("SENTIMENT_UPDATE_INTERVAL_SECONDS", "900"))
 SENTIMENT_TTL_SECONDS = int(os.getenv("SENTIMENT_TTL_SECONDS", "1800"))
+CRYPTO_PANIC_API_KEY = os.getenv("CRYPTO_PANIC_API_KEY", "")
+LM_STUDIO_URL = os.getenv("LM_STUDIO_URL", "http://localhost:1234/v1")
+LM_STUDIO_MODEL = os.getenv("LM_STUDIO_MODEL", "qwen2.5-1.5b-instruct")
 SENTIMENT_NEGATIVE_BLOCK_THRESHOLD = float(os.getenv("SENTIMENT_NEGATIVE_BLOCK_THRESHOLD", "-0.50"))
 SENTIMENT_POSITIVE_BLOCK_THRESHOLD = float(os.getenv("SENTIMENT_POSITIVE_BLOCK_THRESHOLD", "0.50"))
 

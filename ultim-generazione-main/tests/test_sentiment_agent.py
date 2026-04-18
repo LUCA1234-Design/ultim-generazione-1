@@ -1,4 +1,5 @@
 from agents.sentiment_agent import SentimentAgent
+from requests.exceptions import ConnectionError
 
 
 class MemoryManagerSpy:
@@ -41,3 +42,45 @@ def test_sentiment_agent_clamps_scores_between_minus_one_and_one():
 
     agent.update_once()
     assert memory.values["BTCUSDT"][0] == 1.0
+
+
+def test_extract_sentiment_score_parses_numeric_text():
+    assert SentimentAgent._extract_sentiment_score("0.45") == 0.45
+    assert SentimentAgent._extract_sentiment_score("score: -2.7") == -1.0
+    assert SentimentAgent._extract_sentiment_score("score: 2.7") == 1.0
+
+
+def test_sentiment_agent_returns_neutral_if_news_fetch_fails(monkeypatch):
+    memory = MemoryManagerSpy()
+    agent = SentimentAgent(
+        memory_manager=memory,
+        symbols_provider=lambda: ["BTCUSDT"],
+        update_interval_seconds=300,
+    )
+
+    def fail_news_fetch(_symbol: str, limit: int = 3):
+        raise RuntimeError("news API unavailable")
+
+    monkeypatch.setattr(agent, "_fetch_news_headlines", fail_news_fetch)
+    agent.update_once()
+
+    assert memory.values["BTCUSDT"][0] == 0.0
+
+
+def test_sentiment_agent_returns_neutral_if_lm_studio_unreachable(monkeypatch):
+    memory = MemoryManagerSpy()
+    agent = SentimentAgent(
+        memory_manager=memory,
+        symbols_provider=lambda: ["BTCUSDT"],
+        update_interval_seconds=300,
+    )
+
+    monkeypatch.setattr(agent, "_fetch_news_headlines", lambda _symbol, limit=3: ["Bitcoin ETF approved"])
+
+    def fail_llm(*_args, **_kwargs):
+        raise ConnectionError("Connection refused")
+
+    monkeypatch.setattr("agents.sentiment_agent.requests.post", fail_llm)
+    agent.update_once()
+
+    assert memory.values["BTCUSDT"][0] == 0.0
