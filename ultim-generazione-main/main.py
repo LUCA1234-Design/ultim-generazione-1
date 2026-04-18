@@ -20,6 +20,7 @@ from config.settings import (
     SNIPER_MIN_AGENT_CONFIRMATIONS, SNIPER_MIN_RR,
     SNIPER_NON_OPTIMAL_HOUR_PENALTY, SNIPER_SIGNAL_COOLDOWN_BY_TF,
     SNIPER_MAX_OPEN_POSITIONS,
+    SENTIMENT_ENABLED, SENTIMENT_UPDATE_INTERVAL_SECONDS, SENTIMENT_TTL_SECONDS,
 )
 import config.settings as _cfg  # Used for runtime threshold updates on Training → Sniper switch
 
@@ -42,6 +43,7 @@ from agents.confluence_agent import ConfluenceAgent
 from agents.risk_agent import RiskAgent
 from agents.strategy_agent import StrategyAgent
 from agents.meta_agent import MetaAgent
+from agents.sentiment_agent import SentimentAgent
 
 # ---- Engine ----
 from engine.decision_fusion import DecisionFusion
@@ -510,6 +512,7 @@ def main():
     logger.info("   - Strategy Agent (generation + evaluation): ON")
     logger.info("   - Meta Agent (weight adjustment): ON")
     logger.info("   - Decision Fusion (weighted voting): ON")
+    logger.info(f"   - Sentiment Agent (Redis narrative brain): {'ON' if SENTIMENT_ENABLED else 'OFF'}")
     logger.info(f"   - Execution: {'PAPER TRADING' if PAPER_TRADING else 'LIVE TRADING'}")
     logger.info("   - Experience DB (SQLite): ON")
     logger.info("=" * 60)
@@ -547,6 +550,16 @@ def main():
 
         # ---- Build V17 system ----
         processor, meta, tracker, execution, risk_agent, strategy_agent, confluence_agent, pattern_agent, decision_context = build_system()
+
+        sentiment_agent: Optional[SentimentAgent] = None
+        if SENTIMENT_ENABLED:
+            sentiment_agent = SentimentAgent(
+                memory_manager=processor.fusion.memory_manager,
+                symbols_provider=lambda: list(set(symbols_whitelist + (symbols_hg_all if HG_MONITOR_ALL else []))),
+                update_interval_seconds=SENTIMENT_UPDATE_INTERVAL_SECONDS,
+                ttl_seconds=SENTIMENT_TTL_SECONDS,
+            )
+            sentiment_agent.start()
 
         # ---- Build & start Evolution Engine ----
         evolution_engine = EvolutionEngine(
@@ -635,6 +648,11 @@ def main():
         def _graceful_shutdown(signum, frame):
             logger.info(f"⚡ Signal {signum} received — saving state before exit...")
             try:
+                if sentiment_agent is not None:
+                    sentiment_agent.stop()
+            except Exception as _sentiment_stop_err:
+                logger.error(f"Sentiment agent stop error: {_sentiment_stop_err}")
+            try:
                 evolution_engine.shutdown()
             except Exception as _se:
                 logger.error(f"Graceful shutdown save error: {_se}")
@@ -704,6 +722,11 @@ def main():
         logger.info("=" * 60)
         logger.info("⏹️ MANUAL SHUTDOWN (Ctrl+C)")
         logger.info("=" * 60)
+        try:
+            if "sentiment_agent" in locals() and sentiment_agent is not None:
+                sentiment_agent.stop()
+        except Exception as e:
+            logger.error(f"sentiment_agent.stop error: {e}")
         try:
             evolution_engine.shutdown()
         except Exception as e:

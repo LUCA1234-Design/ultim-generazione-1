@@ -158,6 +158,16 @@ FUSION_AGENT_WEIGHTS = {
 }
 
 # ============================================================
+# SENTIMENT AGENT (NEWS/NARRATIVE BRAIN)
+# ============================================================
+
+SENTIMENT_ENABLED = os.getenv("SENTIMENT_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
+SENTIMENT_UPDATE_INTERVAL_SECONDS = int(os.getenv("SENTIMENT_UPDATE_INTERVAL_SECONDS", "900"))
+SENTIMENT_TTL_SECONDS = int(os.getenv("SENTIMENT_TTL_SECONDS", "1800"))
+SENTIMENT_NEGATIVE_BLOCK_THRESHOLD = float(os.getenv("SENTIMENT_NEGATIVE_BLOCK_THRESHOLD", "-0.50"))
+SENTIMENT_POSITIVE_BLOCK_THRESHOLD = float(os.getenv("SENTIMENT_POSITIVE_BLOCK_THRESHOLD", "0.50"))
+
+# ============================================================
 # HEARTBEAT
 # ============================================================
 

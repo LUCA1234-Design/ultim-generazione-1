@@ -30,6 +30,8 @@ from config.settings import (
     NON_OPTIMAL_HOUR_PENALTY,
     TRAINING_MODE,
     TRAINING_MIN_AGREEING_TIMEFRAMES,
+    SENTIMENT_NEGATIVE_BLOCK_THRESHOLD,
+    SENTIMENT_POSITIVE_BLOCK_THRESHOLD,
 )
 
 logger = logging.getLogger("EventProcessor")
@@ -88,6 +90,8 @@ class EventProcessor:
             "unfavorable_regime": 0,
             "weak_confluence": 0,
             "weak_micro_momentum": 0,
+            "negative_news_sentiment": 0,
+            "positive_news_sentiment": 0,
         }
 
     # ------------------------------------------------------------------
@@ -397,6 +401,25 @@ class EventProcessor:
             logger.warning(
                 f"Trade blocked for {symbol} due to high correlation ({corr:.2f}) "
                 f"with open position {blocked_symbol}"
+            )
+            return None
+
+        sentiment_score = 0.0
+        sentiment_memory = getattr(self.fusion, "memory_manager", None)
+        if sentiment_memory is not None and hasattr(sentiment_memory, "get_sentiment_score"):
+            sentiment_score = float(sentiment_memory.get_sentiment_score(symbol))
+        if fusion_result.decision == "long" and sentiment_score < SENTIMENT_NEGATIVE_BLOCK_THRESHOLD:
+            self._skip("negative_news_sentiment")
+            logger.info(
+                f"⛔ {symbol}/{interval} SKIP: negative_news_sentiment | "
+                f"sentiment={sentiment_score:.3f} threshold={SENTIMENT_NEGATIVE_BLOCK_THRESHOLD:.3f}"
+            )
+            return None
+        if fusion_result.decision == "short" and sentiment_score > SENTIMENT_POSITIVE_BLOCK_THRESHOLD:
+            self._skip("positive_news_sentiment")
+            logger.info(
+                f"⛔ {symbol}/{interval} SKIP: positive_news_sentiment | "
+                f"sentiment={sentiment_score:.3f} threshold={SENTIMENT_POSITIVE_BLOCK_THRESHOLD:.3f}"
             )
             return None
 
