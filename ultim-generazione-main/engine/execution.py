@@ -6,6 +6,7 @@ Real mode uses Binance Futures futures_create_order() via binance_client.
 import logging
 import time
 import datetime
+import threading
 import uuid
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Any, Tuple
@@ -25,6 +26,7 @@ from data.binance_client import place_futures_order
 from memory import experience_db
 
 logger = logging.getLogger("Execution")
+_POSITION_SIZE_EPSILON = 1e-8
 
 # Maximum age per interval before a position is force-closed (in seconds)
 if TRAINING_MODE:
@@ -128,6 +130,7 @@ class ExecutionEngine:
 
     def __init__(self, paper_trading: bool = PAPER_TRADING,
                  initial_balance: float = ACCOUNT_BALANCE):
+        self._lock = threading.RLock()
         self.paper_trading = paper_trading
         self._balance = initial_balance
         self._initial_balance = initial_balance
@@ -188,172 +191,345 @@ class ExecutionEngine:
                       decision_id: str = "",
                       initial_atr: Optional[float] = None) -> Optional[Position]:
         """Open a new position (paper or live)."""
-        direction = (direction or "").lower()
-        if direction not in ("long", "short"):
-            logger.error(f"Invalid direction for open_position: {direction}")
-            return None
-
-        risk = abs(entry_price - sl)
-        if tp1 is None:
-            tp1 = entry_price + risk if direction == "long" else entry_price - risk
-        if tp2 is None:
-            tp2 = entry_price + 2.0 * risk if direction == "long" else entry_price - 2.0 * risk
-
-        pos_id = str(uuid.uuid4())[:8]
-        pos = Position(
-            position_id=pos_id,
-            symbol=symbol,
-            interval=interval,
-            direction=direction,
-            entry_price=entry_price,
-            size=size,
-            sl=sl,
-            tp1=tp1,
-            tp2=tp2,
-            strategy=strategy,
-            decision_id=decision_id,
-            initial_atr=initial_atr,
-            paper=self.paper_trading,
-        )
-
-        if self.paper_trading:
-            self._open_positions[pos_id] = pos
-            logger.info(
-                f"📄 PAPER OPEN [{pos_id}] {symbol} {direction.upper()} "
-                f"@ {entry_price:.4f} size={size} sl={sl:.4f} tp1={tp1:.4f}"
-            )
-        else:
-            # Real execution
-            side = "BUY" if direction == "long" else "SELL"
-            order = place_futures_order(symbol, side, "MARKET", size)
-            if order is None:
-                logger.error(f"Failed to open live position for {symbol}")
+        with self._lock:
+            direction = (direction or "").lower()
+            if direction not in ("long", "short"):
+                logger.error(f"Invalid direction for open_position: {direction}")
                 return None
-            self._open_positions[pos_id] = pos
-            logger.info(f"✅ LIVE OPEN [{pos_id}] {symbol} {direction.upper()} {order}")
 
-        return pos
+            risk = abs(entry_price - sl)
+            if tp1 is None:
+                tp1 = entry_price + risk if direction == "long" else entry_price - risk
+            if tp2 is None:
+                tp2 = entry_price + 2.0 * risk if direction == "long" else entry_price - 2.0 * risk
 
-    def close_position(self, position_id: str, close_price: float,
-                        reason: str = "manual") -> Optional[Position]:
+            pos_id = str(uuid.uuid4())[:8]
+            pos = Position(
+                position_id=pos_id,
+                symbol=symbol,
+                interval=interval,
+                direction=direction,
+                entry_price=entry_price,
+                size=size,
+                sl=sl,
+                tp1=tp1,
+                tp2=tp2,
+                strategy=strategy,
+                decision_id=decision_id,
+                initial_atr=initial_atr,
+                paper=self.paper_trading,
+            )
+
+            if self.paper_trading:
+                self._open_positions[pos_id] = pos
+                logger.info(
+                    f"📄 PAPER OPEN [{pos_id}] {symbol} {direction.upper()} "
+                    f"@ {entry_price:.4f} size={size} sl={sl:.4f} tp1={tp1:.4f}"
+                )
+            else:
+                # Real execution
+                side = "BUY" if direction == "long" else "SELL"
+                order = place_futures_order(symbol, side, "MARKET", size)
+                if order is None:
+                    logger.error(f"Failed to open live position for {symbol}")
+                    return None
+                self._open_positions[pos_id] = pos
+                logger.info(f"✅ LIVE OPEN [{pos_id}] {symbol} {direction.upper()} {order}")
+
+            return pos
+
+    def close_position(
+        self,
+        position_id: str,
+        close_price: float,
+        reason: str = "manual",
+        from_exchange: bool = False,
+    ) -> Optional[Position]:
         """Close an open position."""
-        pos = self._open_positions.pop(position_id, None)
-        if pos is None:
-            return None
+        with self._lock:
+            pos = self._open_positions.pop(position_id, None)
+            if pos is None:
+                return None
 
-        pos.close_price = close_price
-        pos.close_time = time.time()
-        pos.pnl = pos.unrealised_pnl(close_price)
-        pos.status = reason
-        self._roll_day_if_needed()
-        self._balance += pos.pnl
-        self._total_pnl += pos.pnl
-        self._daily_pnl += pos.pnl
-        self._trade_count += 1
+            pos.close_price = close_price
+            pos.close_time = time.time()
+            pos.pnl = pos.unrealised_pnl(close_price)
+            pos.status = reason
+            self._roll_day_if_needed()
+            self._balance += pos.pnl
+            self._total_pnl += pos.pnl
+            self._daily_pnl += pos.pnl
+            self._trade_count += 1
 
-        if pos.pnl > 0:
-            self._win_count += 1
-            self._consecutive_losses = 0
-        else:
-            self._consecutive_losses += 1
+            if pos.pnl > 0:
+                self._win_count += 1
+                self._consecutive_losses = 0
+            else:
+                self._consecutive_losses += 1
 
-        self._closed_positions.append(pos)
-        if len(self._closed_positions) > 1000:
-            del self._closed_positions[:100]
-        emoji = "✅" if pos.pnl > 0 else "❌"
-        logger.info(
-            f"{emoji} {'PAPER ' if pos.paper else ''}CLOSE [{position_id}] "
-            f"{pos.symbol} {pos.direction.upper()} @ {close_price:.4f} "
-            f"PnL={pos.pnl:+.4f} ({reason})"
+            self._closed_positions.append(pos)
+            if len(self._closed_positions) > 1000:
+                del self._closed_positions[:100]
+            emoji = "✅" if pos.pnl > 0 else "❌"
+            logger.info(
+                f"{emoji} {'PAPER ' if pos.paper else ''}CLOSE [{position_id}] "
+                f"{pos.symbol} {pos.direction.upper()} @ {close_price:.4f} "
+                f"PnL={pos.pnl:+.4f} ({reason})"
+            )
+
+            if not self.paper_trading and not from_exchange:
+                side = "SELL" if pos.direction == "long" else "BUY"
+                close_order = place_futures_order(pos.symbol, side, "MARKET", pos.size, reduce_only=True)
+                if close_order is None:
+                    logger.warning(f"Failed to place reduce-only close order for {pos.symbol}")
+
+            return pos
+
+    def process_user_stream_event(self, event: Dict[str, Any]) -> List[Position]:
+        """Apply Binance User Data Stream events to local live-position state."""
+        if self.paper_trading or not isinstance(event, dict):
+            return []
+
+        event_type = str(event.get("e", ""))
+        if event_type == "ORDER_TRADE_UPDATE":
+            return self._apply_order_trade_update(event.get("o") or {})
+        if event_type == "ACCOUNT_UPDATE":
+            return self._apply_account_update(event.get("a") or {})
+        return []
+
+    def _apply_order_trade_update(self, order: Dict[str, Any]) -> List[Position]:
+        status = str(order.get("X", ""))
+        execution_type = str(order.get("x", ""))
+        if status != "FILLED" or execution_type != "TRADE":
+            return []
+
+        symbol = str(order.get("s", "")).upper()
+        side = str(order.get("S", "")).upper()
+        if not symbol or side not in {"BUY", "SELL"}:
+            return []
+
+        try:
+            filled_qty = float(order.get("l") or order.get("z") or 0.0)
+        except (TypeError, ValueError):
+            filled_qty = 0.0
+        try:
+            fill_price = float(order.get("ap") or order.get("L") or 0.0)
+        except (TypeError, ValueError):
+            fill_price = 0.0
+
+        order_type = str(order.get("o", ""))
+        reduce_only = bool(order.get("R"))
+        if not reduce_only:
+            return []
+
+        reason = "exchange_fill"
+        if "STOP" in order_type:
+            reason = "sl_hit"
+        elif "TAKE_PROFIT" in order_type:
+            reason = "tp2_hit"
+
+        return self._apply_external_fill(
+            symbol=symbol,
+            side=side,
+            quantity=filled_qty,
+            fill_price=fill_price,
+            reason=reason,
+            order_type=order_type,
         )
 
-        if not self.paper_trading:
-            side = "SELL" if pos.direction == "long" else "BUY"
-            place_futures_order(pos.symbol, side, "MARKET", pos.size, reduce_only=True)
+    def _apply_account_update(self, account_update: Dict[str, Any]) -> List[Position]:
+        closed_positions: List[Position] = []
+        positions = account_update.get("P") or []
+        if not isinstance(positions, list):
+            return closed_positions
 
-        return pos
+        for item in positions:
+            if not isinstance(item, dict):
+                continue
+            symbol = str(item.get("s", "")).upper()
+            if not symbol:
+                continue
+            try:
+                amount = float(item.get("pa", 0.0))
+            except (TypeError, ValueError):
+                continue
+            if abs(amount) > _POSITION_SIZE_EPSILON:
+                continue
+            try:
+                event_price = float(item.get("ep") or 0.0)
+            except (TypeError, ValueError):
+                event_price = 0.0
+
+            with self._lock:
+                symbol_positions = [
+                    (pos_id, pos)
+                    for pos_id, pos in self._open_positions.items()
+                    if pos.symbol.upper() == symbol
+                ]
+                for pos_id, pos in symbol_positions:
+                    close_price = event_price if event_price > 0 else pos.entry_price
+                    closed = self.close_position(
+                        pos_id,
+                        close_price=close_price,
+                        reason="account_update_flat",
+                        from_exchange=True,
+                    )
+                    if closed is not None:
+                        closed_positions.append(closed)
+        return closed_positions
+
+    def _apply_external_fill(
+        self,
+        symbol: str,
+        side: str,
+        quantity: float,
+        fill_price: float,
+        reason: str,
+        order_type: str,
+    ) -> List[Position]:
+        closed_positions: List[Position] = []
+        with self._lock:
+            candidates = [
+                (pos_id, pos)
+                for pos_id, pos in self._open_positions.items()
+                if pos.symbol.upper() == symbol
+                and ((pos.direction == "long" and side == "SELL") or (pos.direction == "short" and side == "BUY"))
+            ]
+
+        if not candidates:
+            return closed_positions
+
+        remaining = max(float(quantity or 0.0), 0.0)
+        close_all_matching = remaining <= 0.0
+        for pos_id, pos in candidates:
+            close_qty = pos.size if close_all_matching else min(pos.size, remaining)
+            if close_qty <= 0:
+                continue
+
+            close_px = fill_price if fill_price > 0 else pos.entry_price
+            is_full_close = close_qty >= (pos.size - _POSITION_SIZE_EPSILON)
+            if is_full_close:
+                closed = self.close_position(
+                    pos_id,
+                    close_price=close_px,
+                    reason=reason,
+                    from_exchange=True,
+                )
+                if closed is not None:
+                    closed_positions.append(closed)
+            else:
+                with self._lock:
+                    if pos.direction == "long":
+                        partial_pnl = (close_px - pos.entry_price) * close_qty
+                    else:
+                        partial_pnl = (pos.entry_price - close_px) * close_qty
+                    pos.realized_pnl += partial_pnl
+                    self._roll_day_if_needed()
+                    self._balance += partial_pnl
+                    self._total_pnl += partial_pnl
+                    self._daily_pnl += partial_pnl
+                    pos.size = max(pos.size - close_qty, 0.0)
+                    if "TAKE_PROFIT" in order_type and not pos.tp1_hit:
+                        pos.tp1_hit = True
+                        pos.sl = pos.entry_price
+                logger.info(
+                    f"🎯 LIVE PARTIAL CLOSE [{pos.position_id}] {pos.symbol} "
+                    f"qty={close_qty:.6f} @ {close_px:.4f} "
+                    f"PnL={partial_pnl:+.4f} ({order_type})"
+                )
+
+            if not close_all_matching:
+                remaining -= close_qty
+                if remaining <= _POSITION_SIZE_EPSILON:
+                    break
+        return closed_positions
 
     def check_position_levels(self, symbol: str, current_price: float) -> List[Position]:
         """Check all open positions for SL/TP hits and return closed positions."""
-        self._roll_day_if_needed()
-        to_close: List[Tuple[str, float, str]] = []
-        closed_positions: List[Position] = []
+        with self._lock:
+            self._roll_day_if_needed()
+            to_close: List[Tuple[str, float, str]] = []
+            closed_positions: List[Position] = []
 
-        for pos_id, pos in list(self._open_positions.items()):
-            if pos.symbol != symbol:
-                continue
+            for pos_id, pos in list(self._open_positions.items()):
+                if pos.symbol != symbol:
+                    continue
 
-            # Check position timeout before SL/TP
-            max_age = _MAX_POSITION_AGE.get(pos.interval, 172800)
-            if time.time() - pos.open_time > max_age:
-                logger.info(
-                    f"⏰ TIMEOUT [{pos_id}] {pos.symbol}/{pos.interval} — "
-                    f"open for >{max_age}s, closing at {current_price:.4f}"
-                )
-                to_close.append((pos_id, current_price, "timeout"))
-                continue
-
-            if pos.direction == "long":
-                if current_price <= pos.sl:
-                    to_close.append((pos_id, current_price, "sl_hit"))
-                elif not pos.tp1_hit and current_price >= pos.tp1:
-                    close_size = pos.size * 0.5
-                    close_pnl = (current_price - pos.entry_price) * close_size
-                    self._execute_tp1_scale_out(pos, close_size, close_pnl)
-                    pos.tp1_hit = True
-                    pos.is_tp1_hit = True
-                    pos.sl = pos.entry_price
+                # Check position timeout before SL/TP
+                max_age = _MAX_POSITION_AGE.get(pos.interval, 172800)
+                if time.time() - pos.open_time > max_age:
                     logger.info(
-                        f"🎯 TP1 hit [{pos_id}] {pos.symbol} — 50% closed for profit "
-                        f"(PnL={close_pnl:+.4f}), SL to breakeven"
+                        f"⏰ TIMEOUT [{pos_id}] {pos.symbol}/{pos.interval} — "
+                        f"open for >{max_age}s, closing at {current_price:.4f}"
                     )
-                    if not self.paper_trading:
-                        place_futures_order(
-                            pos.symbol, "SELL", "MARKET", close_size, reduce_only=True
-                        )
-                elif pos.tp1_hit and not pos.tp2_hit and current_price >= pos.tp2:
-                    pos.tp2_hit = True
-                    to_close.append((pos_id, current_price, "tp2_hit"))
-                elif pos.tp1_hit and not pos.tp2_hit:
-                    trail_distance = self._dynamic_trail_distance(pos, current_price)
-                    new_sl = current_price - trail_distance
-                    if new_sl > pos.sl:
-                        pos.sl = new_sl
-                        logger.debug(f"📈 Trail SL [{pos_id}] {pos.symbol} → {new_sl:.4f}")
-            else:
-                if current_price >= pos.sl:
-                    to_close.append((pos_id, current_price, "sl_hit"))
-                elif not pos.tp1_hit and current_price <= pos.tp1:
-                    close_size = pos.size * 0.5
-                    close_pnl = (pos.entry_price - current_price) * close_size
-                    self._execute_tp1_scale_out(pos, close_size, close_pnl)
-                    pos.tp1_hit = True
-                    pos.is_tp1_hit = True
-                    pos.sl = pos.entry_price
-                    logger.info(
-                        f"🎯 TP1 hit [{pos_id}] {pos.symbol} — 50% closed for profit "
-                        f"(PnL={close_pnl:+.4f}), SL to breakeven"
-                    )
-                    if not self.paper_trading:
-                        place_futures_order(
-                            pos.symbol, "BUY", "MARKET", close_size, reduce_only=True
-                        )
-                elif pos.tp1_hit and not pos.tp2_hit and current_price <= pos.tp2:
-                    pos.tp2_hit = True
-                    to_close.append((pos_id, current_price, "tp2_hit"))
-                elif pos.tp1_hit and not pos.tp2_hit:
-                    trail_distance = self._dynamic_trail_distance(pos, current_price)
-                    new_sl = current_price + trail_distance
-                    if new_sl < pos.sl:
-                        pos.sl = new_sl
-                        logger.debug(f"📉 Trail SL [{pos_id}] {pos.symbol} → {new_sl:.4f}")
+                    to_close.append((pos_id, current_price, "timeout"))
+                    continue
 
-        for pos_id, price, reason in to_close:
-            closed = self.close_position(pos_id, price, reason)
-            if closed is not None:
-                closed_positions.append(closed)
+                if pos.direction == "long":
+                    if current_price <= pos.sl:
+                        to_close.append((pos_id, current_price, "sl_hit"))
+                    elif not pos.tp1_hit and current_price >= pos.tp1:
+                        close_size = pos.size * 0.5
+                        close_pnl = (current_price - pos.entry_price) * close_size
+                        self._execute_tp1_scale_out(pos, close_size, close_pnl)
+                        pos.tp1_hit = True
+                        pos.is_tp1_hit = True
+                        pos.sl = pos.entry_price
+                        logger.info(
+                            f"🎯 TP1 hit [{pos_id}] {pos.symbol} — 50% closed for profit "
+                            f"(PnL={close_pnl:+.4f}), SL to breakeven"
+                        )
+                        if not self.paper_trading:
+                            partial_order = place_futures_order(
+                                pos.symbol, "SELL", "MARKET", close_size, reduce_only=True
+                            )
+                            if partial_order is None:
+                                logger.warning(f"Failed to place TP1 partial reduce-only order for {pos.symbol}")
+                    elif pos.tp1_hit and not pos.tp2_hit and current_price >= pos.tp2:
+                        pos.tp2_hit = True
+                        to_close.append((pos_id, current_price, "tp2_hit"))
+                    elif pos.tp1_hit and not pos.tp2_hit:
+                        trail_distance = self._dynamic_trail_distance(pos, current_price)
+                        new_sl = current_price - trail_distance
+                        if new_sl > pos.sl:
+                            pos.sl = new_sl
+                            logger.debug(f"📈 Trail SL [{pos_id}] {pos.symbol} → {new_sl:.4f}")
+                else:
+                    if current_price >= pos.sl:
+                        to_close.append((pos_id, current_price, "sl_hit"))
+                    elif not pos.tp1_hit and current_price <= pos.tp1:
+                        close_size = pos.size * 0.5
+                        close_pnl = (pos.entry_price - current_price) * close_size
+                        self._execute_tp1_scale_out(pos, close_size, close_pnl)
+                        pos.tp1_hit = True
+                        pos.is_tp1_hit = True
+                        pos.sl = pos.entry_price
+                        logger.info(
+                            f"🎯 TP1 hit [{pos_id}] {pos.symbol} — 50% closed for profit "
+                            f"(PnL={close_pnl:+.4f}), SL to breakeven"
+                        )
+                        if not self.paper_trading:
+                            partial_order = place_futures_order(
+                                pos.symbol, "BUY", "MARKET", close_size, reduce_only=True
+                            )
+                            if partial_order is None:
+                                logger.warning(f"Failed to place TP1 partial reduce-only order for {pos.symbol}")
+                    elif pos.tp1_hit and not pos.tp2_hit and current_price <= pos.tp2:
+                        pos.tp2_hit = True
+                        to_close.append((pos_id, current_price, "tp2_hit"))
+                    elif pos.tp1_hit and not pos.tp2_hit:
+                        trail_distance = self._dynamic_trail_distance(pos, current_price)
+                        new_sl = current_price + trail_distance
+                        if new_sl < pos.sl:
+                            pos.sl = new_sl
+                            logger.debug(f"📉 Trail SL [{pos_id}] {pos.symbol} → {new_sl:.4f}")
 
-        return closed_positions
+            for pos_id, price, reason in to_close:
+                closed = self.close_position(pos_id, price, reason)
+                if closed is not None:
+                    closed_positions.append(closed)
+
+            return closed_positions
 
     def _dynamic_trail_distance(self, pos: Position, current_price: float) -> float:
         """Return trailing distance for post-TP1 management.
@@ -420,27 +596,30 @@ class ExecutionEngine:
     # ------------------------------------------------------------------
 
     def get_stats(self) -> Dict[str, Any]:
-        self._roll_day_if_needed()
-        risk_blocked, risk_reason = self.is_risk_blocked()
+        with self._lock:
+            self._roll_day_if_needed()
+            risk_blocked, risk_reason = self.is_risk_blocked()
 
-        return {
-            "paper_trading": self.paper_trading,
-            "balance": self._balance,
-            "initial_balance": self._initial_balance,
-            "total_pnl": self._total_pnl,
-            "pnl_pct": self._total_pnl / self._initial_balance * 100,
-            "trade_count": self._trade_count,
-            "win_count": self._win_count,
-            "win_rate": self._win_count / max(self._trade_count, 1),
-            "open_positions": len(self._open_positions),
-            "daily_pnl": self._daily_pnl,
-            "consecutive_losses": self._consecutive_losses,
-            "risk_blocked": risk_blocked,
-            "risk_block_reason": risk_reason,
-        }
+            return {
+                "paper_trading": self.paper_trading,
+                "balance": self._balance,
+                "initial_balance": self._initial_balance,
+                "total_pnl": self._total_pnl,
+                "pnl_pct": self._total_pnl / self._initial_balance * 100,
+                "trade_count": self._trade_count,
+                "win_count": self._win_count,
+                "win_rate": self._win_count / max(self._trade_count, 1),
+                "open_positions": len(self._open_positions),
+                "daily_pnl": self._daily_pnl,
+                "consecutive_losses": self._consecutive_losses,
+                "risk_blocked": risk_blocked,
+                "risk_block_reason": risk_reason,
+            }
 
     def get_open_positions(self) -> List[Position]:
-        return list(self._open_positions.values())
+        with self._lock:
+            return list(self._open_positions.values())
 
     def get_closed_positions(self, limit: int = 50) -> List[Position]:
-        return self._closed_positions[-limit:]
+        with self._lock:
+            return self._closed_positions[-limit:]
