@@ -305,7 +305,7 @@ def get_completed_trade_count(paper_only: Optional[bool] = None) -> int:
             params = ()
             if paper_only is not None:
                 query += " AND paper=?"
-                params = (int(bool(paper_only)),)
+                params = (int(paper_only),)
             row = _conn.execute(query, params).fetchone()
             if row:
                 return int(row["cnt"])

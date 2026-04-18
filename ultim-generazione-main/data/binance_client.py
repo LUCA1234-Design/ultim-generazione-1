@@ -68,6 +68,7 @@ def fetch_futures_ticker():
 
 def fetch_futures_depth(symbol: str, limit: int = 10, timeout: float = 0.35) -> dict:
     """Fetch a shallow futures order book snapshot quickly via REST."""
+    resp = None
     try:
         resp = requests.get(
             f"{_FUTURES_REST_BASE}/fapi/v1/depth",
@@ -79,7 +80,11 @@ def fetch_futures_depth(symbol: str, limit: int = 10, timeout: float = 0.35) -> 
         if isinstance(payload, dict):
             return payload
     except Exception as e:
-        logger.debug(f"fetch_futures_depth {symbol}: {e}")
+        status_code = getattr(resp, "status_code", "n/a")
+        logger.debug(
+            f"fetch_futures_depth {symbol} failed "
+            f"(type={type(e).__name__}, status={status_code}): {e}"
+        )
     return {}
 
 

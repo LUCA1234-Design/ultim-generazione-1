@@ -145,12 +145,10 @@ class ExecutionEngine:
         )
 
     def _restore_trade_count(self) -> int:
-        if not self.paper_trading:
-            return 0
         try:
-            return max(0, int(experience_db.get_completed_trade_count(paper_only=True)))
+            return int(experience_db.get_completed_trade_count(paper_only=self.paper_trading))
         except Exception as e:
-            logger.debug(f"ExecutionEngine trade counter restore error: {e}")
+            logger.warning(f"ExecutionEngine trade counter restore error: {e}")
             return 0
     def _roll_day_if_needed(self) -> None:
         today = datetime.datetime.now(datetime.timezone.utc).date()

@@ -15,6 +15,14 @@ class TestExecutionEngineScaleOutAndTrailing:
         engine = ExecutionEngine(paper_trading=True, initial_balance=1000.0)
         assert engine.get_stats()["trade_count"] == 45
 
+    def test_restores_live_trade_count_from_experience_db(self, monkeypatch):
+        monkeypatch.setattr(
+            "engine.execution.experience_db.get_completed_trade_count",
+            lambda paper_only=None: 45 if paper_only else 99,
+        )
+        engine = ExecutionEngine(paper_trading=False, initial_balance=1000.0)
+        assert engine.get_stats()["trade_count"] == 99
+
     def test_position_tracks_is_tp1_hit_and_current_size(self):
         engine = ExecutionEngine(paper_trading=True, initial_balance=1000.0)
         pos = engine.open_position(
