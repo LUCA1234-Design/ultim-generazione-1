@@ -26,6 +26,7 @@ from data.binance_client import place_futures_order
 from memory import experience_db
 
 logger = logging.getLogger("Execution")
+_POSITION_SIZE_EPSILON = 1e-12
 
 # Maximum age per interval before a position is force-closed (in seconds)
 if TRAINING_MODE:
@@ -297,7 +298,7 @@ class ExecutionEngine:
     def _apply_order_trade_update(self, order: Dict[str, Any]) -> List[Position]:
         status = str(order.get("X", ""))
         execution_type = str(order.get("x", ""))
-        if status != "FILLED" and execution_type != "TRADE":
+        if status != "FILLED" or execution_type != "TRADE":
             return []
 
         symbol = str(order.get("s", "")).upper()
@@ -350,7 +351,7 @@ class ExecutionEngine:
                 amount = float(item.get("pa", 0.0))
             except (TypeError, ValueError):
                 continue
-            if abs(amount) > 1e-12:
+            if abs(amount) > _POSITION_SIZE_EPSILON:
                 continue
             try:
                 event_price = float(item.get("ep") or 0.0)
@@ -404,7 +405,7 @@ class ExecutionEngine:
                 continue
 
             close_px = fill_price if fill_price > 0 else pos.entry_price
-            is_full_close = close_qty >= (pos.size - 1e-12)
+            is_full_close = close_qty >= (pos.size - _POSITION_SIZE_EPSILON)
             if is_full_close:
                 closed = self.close_position(
                     pos_id,
@@ -438,7 +439,7 @@ class ExecutionEngine:
 
             if not close_all:
                 remaining -= close_qty
-                if remaining <= 1e-12:
+                if remaining <= _POSITION_SIZE_EPSILON:
                     break
         return closed_positions
 

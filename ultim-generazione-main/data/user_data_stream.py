@@ -21,6 +21,7 @@ logger = logging.getLogger("UserDataStream")
 
 _REST_BASE = "https://fapi.binance.com"
 _WS_BASE = "wss://fstream.binance.com/ws"
+_MIN_KEEPALIVE_INTERVAL_SEC = 30 * 60
 
 
 class UserDataStreamManager:
@@ -43,7 +44,7 @@ class UserDataStreamManager:
         self._api_secret = (api_secret if api_secret is not None else API_SECRET or "").strip()
         self._rest_base_url = rest_base_url.rstrip("/")
         self._ws_base_url = ws_base_url.rstrip("/")
-        self._keepalive_interval_sec = max(60, int(keepalive_interval_sec))
+        self._keepalive_interval_sec = max(_MIN_KEEPALIVE_INTERVAL_SEC, int(keepalive_interval_sec))
         self._request_timeout_sec = max(1.0, float(request_timeout_sec))
         self._reconnect_delay_sec = max(1, int(reconnect_delay_sec))
         self._max_reconnect_delay_sec = max(self._reconnect_delay_sec, int(max_reconnect_delay_sec))

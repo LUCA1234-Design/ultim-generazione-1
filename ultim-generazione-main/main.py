@@ -652,8 +652,8 @@ def main():
                     try:
                         _ = user_data_events.get_nowait()
                         user_data_events.put_nowait(event)
-                    except Exception:
-                        pass
+                    except Exception as queue_recover_err:
+                        logger.debug(f"User Data Stream queue recovery failed: {queue_recover_err}")
 
             user_data_stream = UserDataStreamManager(on_event=_on_user_event)
             uds_started = user_data_stream.start()
