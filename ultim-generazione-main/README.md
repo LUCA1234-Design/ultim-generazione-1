@@ -58,6 +58,8 @@ Set environment variables (or use the hardcoded V16-style fallbacks):
 ```bash
 export BINANCE_API_KEY=your_key
 export BINANCE_API_SECRET=your_secret
+export CRYPTO_PANIC_API_KEY=your_cryptopanic_key   # optional, RSS fallback if omitted
+export LM_STUDIO_URL=http://localhost:1234/v1
 ```
 
 ## Key Improvements Over V16

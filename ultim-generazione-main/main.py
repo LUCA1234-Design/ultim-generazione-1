@@ -21,6 +21,7 @@ from config.settings import (
     SNIPER_NON_OPTIMAL_HOUR_PENALTY, SNIPER_SIGNAL_COOLDOWN_BY_TF,
     SNIPER_MAX_OPEN_POSITIONS,
     SENTIMENT_ENABLED, SENTIMENT_UPDATE_INTERVAL_SECONDS, SENTIMENT_TTL_SECONDS,
+    CRYPTO_PANIC_API_KEY, LM_STUDIO_URL, LM_STUDIO_MODEL,
 )
 import config.settings as _cfg  # Used for runtime threshold updates on Training → Sniper switch
 
@@ -579,6 +580,9 @@ def main():
                 symbols_provider=lambda: all_symbols,
                 update_interval_seconds=SENTIMENT_UPDATE_INTERVAL_SECONDS,
                 ttl_seconds=SENTIMENT_TTL_SECONDS,
+                crypto_panic_api_key=CRYPTO_PANIC_API_KEY,
+                lm_studio_url=LM_STUDIO_URL,
+                lm_studio_model=LM_STUDIO_MODEL,
             )
             sentiment_agent.start()
 
