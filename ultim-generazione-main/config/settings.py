@@ -65,6 +65,7 @@ AI_CALL_COOLDOWN = 300
 # ============================================================
 
 PAPER_TRADING = True           # Paper trading ON by default
+SIGNAL_ONLY = True             # Signal-only ON by default (manual execution alerts, internal paper tracking)
 ACCOUNT_BALANCE = 1000.0
 THRESHOLD_BASE = 0.35
 MAX_OPEN_POSITIONS = 3

@@ -144,6 +144,7 @@ def test_on_candle_close_allows_trade_when_correlation_data_is_missing_or_too_sh
 
     assert result is not None
     execution.open_position.assert_called_once()
+    assert execution.open_position.call_args.kwargs["force_paper"] is True
 
 
 def test_on_candle_close_skips_trade_when_micro_momentum_is_weak(monkeypatch):

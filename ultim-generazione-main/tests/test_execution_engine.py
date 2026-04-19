@@ -263,3 +263,34 @@ class TestExecutionEngineScaleOutAndTrailing:
         assert len(closed) == 1
         assert closed[0].status == "account_update_flat"
         assert engine.get_stats()["open_positions"] == 0
+
+    def test_force_paper_in_live_mode_never_places_exchange_orders(self, monkeypatch):
+        order_calls = []
+        monkeypatch.setattr(
+            "engine.execution.place_futures_order",
+            lambda *args, **kwargs: order_calls.append((args, kwargs)) or {"ok": True},
+        )
+        engine = ExecutionEngine(paper_trading=False, initial_balance=1000.0)
+        pos = engine.open_position(
+            symbol="BTCUSDT",
+            interval="1h",
+            direction="long",
+            entry_price=100.0,
+            size=2.0,
+            sl=95.0,
+            tp1=110.0,
+            tp2=120.0,
+            force_paper=True,
+        )
+        assert pos is not None
+        assert pos.paper is True
+        assert order_calls == []
+
+        # TP1 scale-out must remain internal in forced-paper mode.
+        engine.check_position_levels("BTCUSDT", 110.0)
+        assert order_calls == []
+
+        closed = engine.close_position(pos.position_id, close_price=99.0, reason="manual")
+        assert closed is not None
+        assert closed.paper is True
+        assert order_calls == []

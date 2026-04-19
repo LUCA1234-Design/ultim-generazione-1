@@ -189,13 +189,15 @@ class ExecutionEngine:
                       entry_price: float, size: float, sl: float,
                       tp1: float, tp2: float, strategy: str = "",
                       decision_id: str = "",
-                      initial_atr: Optional[float] = None) -> Optional[Position]:
+                      initial_atr: Optional[float] = None,
+                      force_paper: bool = False) -> Optional[Position]:
         """Open a new position (paper or live)."""
         with self._lock:
             direction = (direction or "").lower()
             if direction not in ("long", "short"):
                 logger.error(f"Invalid direction for open_position: {direction}")
                 return None
+            effective_paper = bool(self.paper_trading or force_paper)
 
             risk = abs(entry_price - sl)
             if tp1 is None:
@@ -217,10 +219,10 @@ class ExecutionEngine:
                 strategy=strategy,
                 decision_id=decision_id,
                 initial_atr=initial_atr,
-                paper=self.paper_trading,
+                paper=effective_paper,
             )
 
-            if self.paper_trading:
+            if effective_paper:
                 self._open_positions[pos_id] = pos
                 logger.info(
                     f"📄 PAPER OPEN [{pos_id}] {symbol} {direction.upper()} "
@@ -277,7 +279,7 @@ class ExecutionEngine:
                 f"PnL={pos.pnl:+.4f} ({reason})"
             )
 
-            if not self.paper_trading and not from_exchange:
+            if not self.paper_trading and not pos.paper and not from_exchange:
                 side = "SELL" if pos.direction == "long" else "BUY"
                 close_order = place_futures_order(pos.symbol, side, "MARKET", pos.size, reduce_only=True)
                 if close_order is None:
@@ -479,7 +481,7 @@ class ExecutionEngine:
                             f"🎯 TP1 hit [{pos_id}] {pos.symbol} — 50% closed for profit "
                             f"(PnL={close_pnl:+.4f}), SL to breakeven"
                         )
-                        if not self.paper_trading:
+                        if not self.paper_trading and not pos.paper:
                             partial_order = place_futures_order(
                                 pos.symbol, "SELL", "MARKET", close_size, reduce_only=True
                             )
@@ -508,7 +510,7 @@ class ExecutionEngine:
                             f"🎯 TP1 hit [{pos_id}] {pos.symbol} — 50% closed for profit "
                             f"(PnL={close_pnl:+.4f}), SL to breakeven"
                         )
-                        if not self.paper_trading:
+                        if not self.paper_trading and not pos.paper:
                             partial_order = place_futures_order(
                                 pos.symbol, "BUY", "MARKET", close_size, reduce_only=True
                             )
