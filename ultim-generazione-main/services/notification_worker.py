@@ -10,10 +10,12 @@ import threading
 import traceback
 from typing import Any, Dict
 
+from config.settings import SIGNAL_ONLY
 from data import data_store
 from memory.experience_db import save_decision
 from notifications.chart_generator import generate_signal_chart
 from notifications.telegram_service import (
+    build_manual_signal_message,
     build_signal_message,
     send_message,
     send_photo,
@@ -52,7 +54,10 @@ def _process_signal_job(job: Dict[str, Any]) -> None:
 
     # 1. Send text message
     try:
-        msg = build_signal_message(fusion_result, agent_results, position)
+        if SIGNAL_ONLY:
+            msg = build_manual_signal_message(position)
+        else:
+            msg = build_signal_message(fusion_result, agent_results, position)
         send_message(msg)
     except Exception as e:
         logger.error(f"Signal notification error: {e}")

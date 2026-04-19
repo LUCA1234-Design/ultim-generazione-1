@@ -176,6 +176,38 @@ def build_signal_message(
     return "\n".join(lines)
 
 
+def build_manual_signal_message(position: Position) -> str:
+    """Build signal-only manual execution alert."""
+    direction = (position.direction or "").upper()
+    return (
+        "🚨 SEGNALE OPERATIVO (MANUALE) 🚨\n"
+        f"🪙 Moneta: {position.symbol} ({direction})\n"
+        f"🎯 Entry: {position.entry_price:.4f}\n"
+        f"🛑 Stop Loss: {position.sl:.4f}\n"
+        f"💰 Take Profit 1: {position.tp1:.4f}"
+    )
+
+
+def build_early_exit_alert_message(position: Position, reason: str) -> str:
+    """Build high-priority early-exit alert message for manually managed trades."""
+    close_price_text = (
+        f"{position.close_price:.4f}"
+        if position.close_price is not None
+        else "prezzo corrente"
+    )
+    return (
+        "⚠️ TAKE PROFIT ANTICIPATO / USCITA ⚠️\n"
+        f"Chiudi la posizione su {position.symbol} a {close_price_text}.\n"
+        f"Motivo: {reason} (Momentum esaurito / Trailing stop).\n"
+        f"PnL stimato: {(position.pnl or 0.0):+.4f}"
+    )
+
+
+def send_early_exit_alert(position: Position, reason: str) -> None:
+    """Send high-priority early-exit alert for manually managed trades."""
+    send_message(build_early_exit_alert_message(position, reason))
+
+
 def build_heartbeat_message(uptime_hours: int, uptime_minutes: int,
                             processed: int, signals: int,
                             open_positions: int, balance: float,

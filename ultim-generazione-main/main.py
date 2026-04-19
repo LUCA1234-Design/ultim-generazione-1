@@ -12,7 +12,7 @@ from typing import Dict, Any, Optional, List
 
 # ---- Config ----
 from config.settings import (
-    PAPER_TRADING, ACCOUNT_BALANCE, HG_ENABLED, HG_MONITOR_ALL,
+    PAPER_TRADING, SIGNAL_ONLY, ACCOUNT_BALANCE, HG_ENABLED, HG_MONITOR_ALL,
     HG_MIN_QUOTE_VOL, SYMBOLS_LIMIT, TELEGRAM_TEST_ON_START,
     STARTUP_TIMEOUT, POLL_CLOSED_ENABLE, DB_PATH,
     HEARTBEAT_INTERVAL, HEARTBEAT_ENABLED,
@@ -74,6 +74,7 @@ from notifications.telegram_service import (
     build_stats_message,
     build_heartbeat_message,
     notify_position_closed,
+    send_early_exit_alert,
 )
 from dashboard.app import DashboardState, start_dashboard_server
 
@@ -334,6 +335,14 @@ def _handle_closed_position(
     except Exception as e:
         logger.error(f"tracker.record_position error: {e}")
 
+    # Send manual early-exit alert for signal-only mode
+    try:
+        manual_reason = _manual_exit_reason_for_alert(closed)
+        if SIGNAL_ONLY and getattr(closed, "paper", False) and manual_reason:
+            send_early_exit_alert(closed, reason=manual_reason)
+    except Exception as e:
+        logger.error(f"send_early_exit_alert error: {e}")
+
     # Notify close
     try:
         notify_position_closed(closed)
@@ -435,6 +444,20 @@ def _handle_closed_position(
             evolution_engine.on_trade_close(closed, ctx)
     except Exception as e:
         logger.error(f"evolution_engine.on_trade_close error: {e}")
+
+
+def _manual_exit_reason_for_alert(closed: Any) -> Optional[str]:
+    """Return manual early-exit reason label for signal-only mode, or None."""
+    status = str(getattr(closed, "status", "") or "").lower()
+    if status == "timeout":
+        return "Timeout"
+    # After TP1, SL is moved/protected in engine.execution.check_position_levels;
+    # an SL hit here indicates an early trailing/protected exit.
+    if status == "sl_hit" and getattr(closed, "tp1_hit", False):
+        return "Trailing stop"
+    if "momentum" in status or "reversal" in status:
+        return "Momentum esaurito"
+    return None
 
 
 def _user_data_event_consumer(

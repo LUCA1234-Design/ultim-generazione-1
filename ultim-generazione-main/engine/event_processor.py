@@ -30,6 +30,7 @@ from config.settings import (
     NON_OPTIMAL_HOUR_PENALTY,
     TRAINING_MODE,
     TRAINING_MIN_AGREEING_TIMEFRAMES,
+    SIGNAL_ONLY,
     SENTIMENT_NEGATIVE_BLOCK_THRESHOLD,
     SENTIMENT_POSITIVE_BLOCK_THRESHOLD,
 )
@@ -447,6 +448,7 @@ class EventProcessor:
             strategy=strategy_name,
             decision_id=fusion_result.decision_id,
             initial_atr=initial_atr,
+            force_paper=SIGNAL_ONLY,
         )
 
         if position:
