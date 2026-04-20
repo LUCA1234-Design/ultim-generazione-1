@@ -179,7 +179,10 @@ def run_training(
 
     total_decisions = 0
     for symbol in symbols:
-        klines = fetch_futures_klines(str(symbol).upper(), interval, limit=history_limit)
+        try:
+            klines = fetch_futures_klines(str(symbol).upper(), interval, limit=history_limit)
+        except Exception:
+            klines = []
         df_hist = klines_to_dataframe(klines)
         if df_hist.empty or len(df_hist) < 100:
             continue

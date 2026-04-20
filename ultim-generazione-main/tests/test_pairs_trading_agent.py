@@ -8,14 +8,16 @@ def test_pairs_trading_agent_emits_delta_neutral_signal_on_extreme_zscore(monkey
     agent = PairsTradingAgent()
     monkeypatch.setattr("agents.pairs_trading_agent.PAIRS_TRADING_LOOKBACK", 60)
     monkeypatch.setattr("agents.pairs_trading_agent.PAIRS_TRADING_ZSCORE_ENTRY", 1.5)
-    monkeypatch.setattr("agents.pairs_trading_agent.PAIRS_TRADING_MIN_CORRELATION", 0.5)
+    monkeypatch.setattr("agents.pairs_trading_agent.PAIRS_TRADING_MIN_CORRELATION", 0.8)
     monkeypatch.setattr("agents.pairs_trading_agent.PAIRS_TRADING_CANDIDATE_PAIRS", [("PEPEUSDT", "FLOKIUSDT")])
     agent._pair_map = {"PEPEUSDT": [("PEPEUSDT", "FLOKIUSDT")], "FLOKIUSDT": [("PEPEUSDT", "FLOKIUSDT")]}
 
-    base = np.linspace(100.0, 130.0, 80)
-    close_a = pd.Series(base)
-    close_b = pd.Series(base * 1.05)
-    close_b.iloc[-1] = close_b.iloc[-1] * 1.15  # force strong positive spread deviation
+    rng = np.random.default_rng(0)
+    ret_a = rng.normal(0.001, 0.002, 120)
+    ret_b = ret_a + rng.normal(0.0, 0.0002, 120)
+    ret_b[-20:] += 0.0008  # sustained outperformance for FLOKI leg
+    close_a = pd.Series(100.0 * np.exp(np.cumsum(ret_a)))
+    close_b = pd.Series(100.0 * np.exp(np.cumsum(ret_b)))
 
     frames = {
         ("PEPEUSDT", "1h"): pd.DataFrame({"close": close_a}),
