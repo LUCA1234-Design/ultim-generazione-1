@@ -68,8 +68,7 @@ class RiskAgent(BaseAgent):
     def kelly_fraction(win_rate: float, rr: float, confidence_score: Optional[float] = None) -> float:
         """Confidence-adjusted Half-Kelly fraction."""
         if rr <= 0 or win_rate <= 0 or win_rate >= 1:
-            fallback = max(0.01, float(KELLY_MIN_FRACTION))
-            return float(np.clip(fallback, KELLY_MIN_FRACTION, KELLY_MAX_FRACTION))
+            return float(max(0.01, KELLY_MIN_FRACTION))
         p = float(np.clip(win_rate, 0.01, 0.99))
         if confidence_score is not None:
             c = float(np.clip(confidence_score, 0.01, 0.99))

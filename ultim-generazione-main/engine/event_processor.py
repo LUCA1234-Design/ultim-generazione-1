@@ -398,14 +398,17 @@ class EventProcessor:
             result = agent_results.get(name)
             if result is not None:
                 confidence_inputs.append(float(np.clip(result.score, 0.0, 1.0)))
-        kelly_confidence = float(np.clip(np.mean(confidence_inputs), 0.01, 0.99)) if confidence_inputs else None
+        multi_agent_confidence = (
+            float(np.clip(np.mean(confidence_inputs), 0.01, 0.99))
+            if confidence_inputs else None
+        )
 
         risk_result = self.risk.safe_analyse(
             symbol,
             interval,
             df,
             direction_hint,
-            confidence_score=kelly_confidence,
+            confidence_score=multi_agent_confidence,
             regime=current_regime,
         )
         if risk_result is not None:
