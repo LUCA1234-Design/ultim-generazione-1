@@ -188,7 +188,10 @@ def build_signal_message(
     if onchain_result and onchain_result.metadata is not None:
         alert_count = int(onchain_result.metadata.get("alert_count", 0))
         if alert_count > 0 and onchain_result.details:
-            lines.append(f"🐋 On-Chain: {onchain_result.details[0]} ({alert_count} alert)")
+            lines.append(
+                f"🐋 On-Chain: {onchain_result.details[0]} "
+                f"({alert_count} alert{'s' if alert_count != 1 else ''})"
+            )
         else:
             lines.append("🐋 On-Chain: nessun trasferimento whale critico")
 

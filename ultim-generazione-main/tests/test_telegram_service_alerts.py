@@ -59,4 +59,6 @@ def test_build_signal_message_includes_kelly_size_and_onchain_alert():
         position=position,
     )
     assert "Kelly Size" in msg
+    assert "2.5000" in msg
+    assert "Leverage" in msg
     assert "On-Chain" in msg
