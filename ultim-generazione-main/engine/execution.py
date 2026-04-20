@@ -41,6 +41,7 @@ else:
 _TRAIL_PCT_AT_TP1 = 0.006
 _TRAIL_PCT_AT_TP2 = 0.002
 _MIN_TRAIL_DISTANCE = 1e-9
+_ENTRY_PRICE_EPSILON = 1e-9
 # ATR-based trailing scales from 1.2x ATR near TP1 to 0.6x ATR near TP2.
 _ATR_TRAIL_MULT_AT_TP1 = 1.2
 _ATR_TRAIL_MULT_AT_TP2 = 0.6
@@ -558,11 +559,22 @@ class ExecutionEngine:
 
     @staticmethod
     def _interval_seconds(interval: str) -> int:
-        return int(_INTERVAL_SECONDS.get(str(interval), 3600))
+        raw = str(interval or "").strip().lower()
+        if raw in _INTERVAL_SECONDS:
+            return int(_INTERVAL_SECONDS[raw])
+        if len(raw) >= 2 and raw[:-1].isdigit():
+            value = int(raw[:-1])
+            unit = raw[-1]
+            if unit == "m":
+                return value * 60
+            if unit == "h":
+                return value * 3600
+        logger.warning(f"Unknown interval '{interval}' in ExecutionEngine; using 3600s fallback")
+        return 3600
 
     @staticmethod
     def _position_profit_pct(pos: Position, current_price: float) -> float:
-        if pos.entry_price == 0:
+        if abs(pos.entry_price) < _ENTRY_PRICE_EPSILON:
             return 0.0
         if pos.direction == "long":
             return ((current_price - pos.entry_price) / pos.entry_price) * 100.0
