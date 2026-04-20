@@ -570,14 +570,18 @@ class ExecutionEngine:
             if unit == "h":
                 return value * 3600
         logger.warning(
-            f"Unknown interval '{interval}' in ExecutionEngine; using 3600s fallback. "
-            "Please verify interval format (e.g., 15m, 1h, 4h)."
+            f"Unknown interval '{interval}' in ExecutionEngine; falling back to 3600s (1h). "
+            "Please verify interval format (e.g., 15m, 1h, 4h) or add mapping to _INTERVAL_SECONDS."
         )
         return 3600
 
     @staticmethod
     def _position_profit_pct(pos: Position, current_price: float) -> float:
         if abs(pos.entry_price) < _ENTRY_PRICE_EPSILON:
+            logger.warning(
+                f"Invalid entry_price for position [{pos.position_id}] {pos.symbol}: "
+                f"{pos.entry_price}. Returning 0.0%% PnL."
+            )
             return 0.0
         if pos.direction == "long":
             return ((current_price - pos.entry_price) / pos.entry_price) * 100.0
