@@ -91,6 +91,8 @@ class DecisionFusion:
                  memory_manager: Optional[RedisMemoryManager] = None):
         self._weights = dict(agent_weights or FUSION_AGENT_WEIGHTS)
         self._weights.setdefault("liquidity", 1.0)
+        self._weights.setdefault("onchain", 0.12)
+        self._weights.setdefault("neural_predict", 0.15)
         self.liquidity_agent = LiquidityAgent()
         self._threshold = threshold
         self._threshold_history: List[float] = []
@@ -270,6 +272,24 @@ class DecisionFusion:
 
         final_score = (weighted_score / total_weight if total_weight > 0 else 0.0) + consensus_bonus
         final_score = float(np.clip(final_score, 0.0, 1.0))
+
+        onchain_result = agent_results.get("onchain")
+        neural_result = agent_results.get("neural_predict")
+        if (
+            onchain_result is not None
+            and neural_result is not None
+            and direction in ("long", "short")
+            and onchain_result.direction == direction
+            and neural_result.direction == direction
+        ):
+            institutional_bonus = 0.03 * min(
+                float(np.clip(onchain_result.confidence, 0.0, 1.0)),
+                float(np.clip(neural_result.confidence, 0.0, 1.0)),
+            )
+            final_score = float(np.clip(final_score + institutional_bonus, 0.0, 1.0))
+            reasoning.append(
+                f"PHASE14_BONUS: onchain+neural alignment ({direction}) → +{institutional_bonus:.3f}"
+            )
 
         # --- Regime-aware threshold adjustment ---
         effective_threshold = self._threshold * _REGIME_THRESHOLD_MULTIPLIERS.get(regime, 1.0)

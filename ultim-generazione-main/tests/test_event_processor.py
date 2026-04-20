@@ -687,3 +687,65 @@ def test_on_candle_close_emits_pairs_signal_without_blocking_directional_flow(mo
     processor.on_pairs_signal.assert_called_once()
     execution.open_position.assert_called_once()
     assert processor.get_stats()["pairs_signals"] == 1
+
+
+def test_on_candle_close_passes_phase14_confidence_to_risk_agent(monkeypatch):
+    execution = MagicMock()
+    execution.get_open_positions.return_value = []
+    execution.is_risk_blocked.return_value = (False, "")
+    execution.open_position.return_value = SimpleNamespace(position_id="p1")
+
+    fusion = MagicMock()
+    fusion.fuse.return_value = FusionResult(
+        decision_id="d13",
+        symbol="SOLUSDT",
+        interval="1h",
+        decision="long",
+        final_score=0.9,
+        direction="long",
+        agent_scores={},
+        agent_results={},
+        threshold=0.5,
+        reasoning=[],
+    )
+    fusion._threshold = 0.5
+
+    processor = _make_processor(execution, fusion)
+    processor.smc.safe_analyse = MagicMock(return_value=None)
+    processor.onchain.safe_analyse = MagicMock(return_value=_agent_result("onchain"))
+    processor.neural_predict.safe_analyse = MagicMock(return_value=_agent_result("neural_predict"))
+    processor.volume_trigger.confirm = MagicMock(return_value=(True, {"imbalance": 0.2}))
+    processor.market_gravity.safe_analyse = MagicMock(
+        return_value=_agent_result("market_gravity", direction="long", metadata={"score_adjustment": 0.0, "veto": False})
+    )
+
+    base_close = pd.Series(range(1, 121), dtype=float)
+    frame = pd.DataFrame(
+        {
+            "open": base_close - 0.2,
+            "high": base_close + 0.8,
+            "low": base_close - 0.8,
+            "close": base_close,
+            "volume": pd.Series([100.0] * len(base_close)),
+        }
+    )
+    frames = {
+        ("SOLUSDT", "1h"): frame,
+        ("BTCUSDT", "1h"): frame,
+        ("ETHUSDT", "1h"): frame,
+    }
+    monkeypatch.setattr("engine.event_processor.data_store.update_realtime", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr("engine.event_processor.data_store.get_df", lambda symbol, interval: frames.get((symbol, interval)))
+    monkeypatch.setattr(processor, "_is_forbidden_hour", lambda: False)
+    monkeypatch.setattr(processor, "_is_signal_cooled", lambda _symbol, _interval: True)
+    monkeypatch.setattr(processor, "_is_optimal_hour", lambda: True)
+    monkeypatch.setattr(
+        "engine.event_processor.fetch_futures_depth",
+        lambda *_args, **_kwargs: {"bids": [["100.0", "10"]], "asks": [["100.2", "10"]]},
+    )
+
+    result = processor.on_candle_close("SOLUSDT", "1h", {"close": 120.0})
+
+    assert result is not None
+    assert "confidence_score" in processor.risk.safe_analyse.call_args.kwargs
+    assert processor.risk.safe_analyse.call_args.kwargs["confidence_score"] is not None

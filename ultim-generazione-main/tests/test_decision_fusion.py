@@ -128,6 +128,10 @@ class TestDecisionFusion:
         assert self.fusion._weights["pattern"] == 2.0
         assert self.fusion._weights["regime"] == 1.5
 
+    def test_phase14_weights_present(self):
+        assert "onchain" in self.fusion._weights
+        assert "neural_predict" in self.fusion._weights
+
     def test_evaluate_includes_liquidity_in_results(self, ohlcv_df):
         results = make_results(score=0.70, direction="long")
         fusion_result = self.fusion.evaluate("BTCUSDT", "1h", ohlcv_df, agent_results=results)

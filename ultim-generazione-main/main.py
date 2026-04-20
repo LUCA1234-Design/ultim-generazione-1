@@ -50,6 +50,8 @@ from agents.sentiment_agent import SentimentAgent
 from agents.smc_agent import SMCAgent
 from agents.sector_rotation_agent import SectorRotationAgent
 from agents.pairs_trading_agent import PairsTradingAgent
+from agents.onchain_agent import OnChainAgent
+from agents.neural_predict_agent import NeuralPredictAgent
 
 # ---- Engine ----
 from engine.decision_fusion import DecisionFusion
@@ -206,7 +208,9 @@ def build_system(dashboard_state: Optional[DashboardState] = None):
     smc = SMCAgent()
     sector_rotation = SectorRotationAgent()
     pairs_trading = PairsTradingAgent()
-    meta = MetaAgent(agents=[pattern, regime, confluence, risk, strategy, smc])
+    onchain = OnChainAgent()
+    neural_predict = NeuralPredictAgent()
+    meta = MetaAgent(agents=[pattern, regime, confluence, risk, strategy, smc, onchain, neural_predict])
 
     fusion = DecisionFusion()
     execution = ExecutionEngine(paper_trading=PAPER_TRADING, initial_balance=ACCOUNT_BALANCE)
@@ -303,6 +307,8 @@ def build_system(dashboard_state: Optional[DashboardState] = None):
         smc_agent=smc,
         sector_rotation_agent=sector_rotation,
         pairs_trading_agent=pairs_trading,
+        onchain_agent=onchain,
+        neural_predict_agent=neural_predict,
         on_pairs_signal=on_pairs_signal,
     )
 
@@ -722,6 +728,8 @@ def main():
     logger.info("   - SMC Agent (FVG + Order Blocks): ON")
     logger.info("   - Sector Rotation (money-flow heatmap): ON")
     logger.info("   - Pairs Trading (delta-neutral stat-arb): ON")
+    logger.info("   - On-Chain Whale Tracker: ON")
+    logger.info("   - Neural Predictive Engine: ON")
     logger.info("   - Meta Agent (weight adjustment): ON")
     logger.info("   - Decision Fusion (weighted voting): ON")
     logger.info(f"   - Sentiment Agent (Redis narrative brain): {'ON' if SENTIMENT_ENABLED else 'OFF'}")

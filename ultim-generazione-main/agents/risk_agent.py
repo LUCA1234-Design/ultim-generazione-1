@@ -10,7 +10,13 @@ from typing import Optional, Dict, Tuple
 
 from agents.base_agent import BaseAgent, AgentResult
 from indicators.technical import atr, adx
-from config.settings import ACCOUNT_BALANCE, LEVERAGE
+from config.settings import (
+    ACCOUNT_BALANCE,
+    LEVERAGE,
+    KELLY_MIN_FRACTION,
+    KELLY_MAX_FRACTION,
+    KELLY_CONFIDENCE_WEIGHT,
+)
 
 logger = logging.getLogger("RiskAgent")
 
@@ -59,13 +65,19 @@ class RiskAgent(BaseAgent):
     # ------------------------------------------------------------------
 
     @staticmethod
-    def kelly_fraction(win_rate: float, rr: float) -> float:
-        """Half-Kelly fraction capped at 5%."""
+    def kelly_fraction(win_rate: float, rr: float, confidence_score: Optional[float] = None) -> float:
+        """Confidence-adjusted Half-Kelly fraction."""
         if rr <= 0 or win_rate <= 0 or win_rate >= 1:
-            return 0.01
-        q = 1.0 - win_rate
-        k = (win_rate * rr - q) / rr
-        return float(np.clip(k * 0.5, 0.005, 0.05))
+            return float(np.clip(0.01, KELLY_MIN_FRACTION, KELLY_MAX_FRACTION))
+        p = float(np.clip(win_rate, 0.01, 0.99))
+        if confidence_score is not None:
+            c = float(np.clip(confidence_score, 0.01, 0.99))
+            alpha = float(np.clip(KELLY_CONFIDENCE_WEIGHT, 0.0, 1.0))
+            p = (1.0 - alpha) * p + alpha * c
+        q = 1.0 - p
+        k = (p * rr - q) / rr
+        kelly_cap = KELLY_MAX_FRACTION if confidence_score is not None else 0.05
+        return float(np.clip(k * 0.5, KELLY_MIN_FRACTION, kelly_cap))
 
     # ------------------------------------------------------------------
     # Level calculation
@@ -90,14 +102,15 @@ class RiskAgent(BaseAgent):
         return float(sl), float(tp1), float(tp2), float(rr), float(_atr)
 
     def calc_position_size(self, entry: float, sl: float,
-                            win_rate: float = DEFAULT_WIN_RATE,
-                            rr: float = 2.0,
-                            regime: str = "unknown") -> float:
+                             win_rate: float = DEFAULT_WIN_RATE,
+                             rr: float = 2.0,
+                             confidence_score: Optional[float] = None,
+                             regime: str = "unknown") -> float:
         """Return position size in base currency units."""
         risk_per_unit = abs(entry - sl)
         if risk_per_unit < 1e-10:
             return 0.0
-        k = self.kelly_fraction(win_rate, rr)
+        k = self.kelly_fraction(win_rate, rr, confidence_score=confidence_score)
         risk_amount = self._balance * k
         size = risk_amount / risk_per_unit
         # Apply regime multiplier
@@ -111,6 +124,7 @@ class RiskAgent(BaseAgent):
 
     def analyse(self, symbol: str, interval: str, df,
                 direction: str = "long",
+                confidence_score: Optional[float] = None,
                 regime: str = "unknown") -> Optional[AgentResult]:
         if df is None or len(df) < 20:
             return None
@@ -118,8 +132,19 @@ class RiskAgent(BaseAgent):
         win_rate = self.get_win_rate(symbol, interval)
         sl, tp1, tp2, rr, atr_value = self.calc_levels(df, direction)
         entry = float(df["close"].iloc[-1])
-        kelly = self.kelly_fraction(win_rate, rr)
-        size = self.calc_position_size(entry, sl, win_rate, rr, regime=regime)
+        effective_confidence = (
+            float(np.clip(confidence_score, 0.01, 0.99))
+            if confidence_score is not None else win_rate
+        )
+        kelly = self.kelly_fraction(win_rate, rr, confidence_score=effective_confidence)
+        size = self.calc_position_size(
+            entry,
+            sl,
+            win_rate,
+            rr,
+            confidence_score=effective_confidence,
+            regime=regime,
+        )
 
         # Risk score: higher R/R and win rate → higher score
         rr_score = float(np.clip(rr / 3.0, 0.0, 1.0))                           # was (rr-1.0)/3.0; R/R=2 now gives 0.67 instead of 0.33
@@ -133,9 +158,10 @@ class RiskAgent(BaseAgent):
             f"tp2={tp2:.4f}",
             f"rr={rr:.2f}",
             f"kelly={kelly*100:.1f}%",
-            f"size={size}",
-            f"win_rate={win_rate:.2%}",
-        ]
+                f"size={size}",
+                f"win_rate={win_rate:.2%}",
+                f"trade_conf={effective_confidence:.2%}",
+            ]
 
         return AgentResult(
             agent_name=self.name,
@@ -155,6 +181,8 @@ class RiskAgent(BaseAgent):
                 "kelly": kelly,
                 "size": size,
                 "win_rate": win_rate,
+                "trade_confidence": effective_confidence,
                 "balance": self._balance,
+                "leverage": LEVERAGE,
             },
         )
