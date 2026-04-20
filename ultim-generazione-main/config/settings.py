@@ -200,6 +200,21 @@ FUSION_AGENT_WEIGHTS = {
 SMC_MIN_SCORE_FOR_LIMIT_ENTRY = 0.55
 
 # ============================================================
+# PHASE 13 — STATISTICAL ARBITRAGE (PAIRS TRADING)
+# ============================================================
+
+PAIRS_TRADING_ENABLED = True
+PAIRS_TRADING_INTERVALS = ["15m", "1h", "4h"]
+PAIRS_TRADING_LOOKBACK = 120
+PAIRS_TRADING_MIN_CORRELATION = 0.80
+PAIRS_TRADING_ZSCORE_ENTRY = 2.0
+PAIRS_TRADING_COOLDOWN_SECONDS = 1800
+PAIRS_TRADING_CANDIDATE_PAIRS = [
+    ("PEPEUSDT", "FLOKIUSDT"),
+    ("FETUSDT", "TAOUSDT"),
+]
+
+# ============================================================
 # SENTIMENT AGENT (NEWS/NARRATIVE BRAIN)
 # ============================================================
 

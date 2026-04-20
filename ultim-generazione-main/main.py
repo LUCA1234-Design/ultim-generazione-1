@@ -49,6 +49,7 @@ from agents.meta_agent import MetaAgent
 from agents.sentiment_agent import SentimentAgent
 from agents.smc_agent import SMCAgent
 from agents.sector_rotation_agent import SectorRotationAgent
+from agents.pairs_trading_agent import PairsTradingAgent
 
 # ---- Engine ----
 from engine.decision_fusion import DecisionFusion
@@ -66,6 +67,7 @@ from evolution.evolution_engine import EvolutionEngine
 from services.notification_worker import (
     start_notification_worker,
     enqueue_signal_notification,
+    enqueue_pairs_signal_notification,
 )
 
 # ---- Notifications ----
@@ -203,6 +205,7 @@ def build_system(dashboard_state: Optional[DashboardState] = None):
     strategy = StrategyAgent()
     smc = SMCAgent()
     sector_rotation = SectorRotationAgent()
+    pairs_trading = PairsTradingAgent()
     meta = MetaAgent(agents=[pattern, regime, confluence, risk, strategy, smc])
 
     fusion = DecisionFusion()
@@ -268,6 +271,25 @@ def build_system(dashboard_state: Optional[DashboardState] = None):
         except Exception as e:
             logger.error(f"Decision context cache error: {e}")
 
+    def on_pairs_signal(pair_result):
+        try:
+            queued = enqueue_pairs_signal_notification(pair_result)
+            if not queued:
+                logger.error("Failed to queue pairs trading notification")
+        except Exception as e:
+            logger.error(f"Pairs signal enqueue error: {e}")
+
+        if dashboard_state is not None:
+            try:
+                meta = pair_result.metadata or {}
+                dashboard_state.add_log(
+                    f"PAIRS {pair_result.symbol}/{pair_result.interval} "
+                    f"LONG={meta.get('long_symbol')} SHORT={meta.get('short_symbol')} "
+                    f"z={float(meta.get('zscore', 0.0)):+.2f}"
+                )
+            except Exception as _dashboard_pairs_log_err:
+                logger.debug(f"dashboard pairs log error: {_dashboard_pairs_log_err}")
+
     processor = EventProcessor(
         pattern_agent=pattern,
         regime_agent=regime,
@@ -280,6 +302,8 @@ def build_system(dashboard_state: Optional[DashboardState] = None):
         on_signal=on_signal,
         smc_agent=smc,
         sector_rotation_agent=sector_rotation,
+        pairs_trading_agent=pairs_trading,
+        on_pairs_signal=on_pairs_signal,
     )
 
     logger.info("✅ V17 agent system ready")
@@ -697,6 +721,7 @@ def main():
     logger.info("   - Strategy Agent (generation + evaluation): ON")
     logger.info("   - SMC Agent (FVG + Order Blocks): ON")
     logger.info("   - Sector Rotation (money-flow heatmap): ON")
+    logger.info("   - Pairs Trading (delta-neutral stat-arb): ON")
     logger.info("   - Meta Agent (weight adjustment): ON")
     logger.info("   - Decision Fusion (weighted voting): ON")
     logger.info(f"   - Sentiment Agent (Redis narrative brain): {'ON' if SENTIMENT_ENABLED else 'OFF'}")

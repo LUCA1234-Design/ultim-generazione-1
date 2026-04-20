@@ -12,6 +12,7 @@ from agents.sentiment_agent import SentimentAgent
 from agents.market_gravity_agent import MarketGravityAgent
 from agents.smc_agent import SMCAgent
 from agents.sector_rotation_agent import SectorRotationAgent
+from agents.pairs_trading_agent import PairsTradingAgent
 
 __all__ = [
     "BaseAgent",
@@ -28,4 +29,5 @@ __all__ = [
     "MarketGravityAgent",
     "SMCAgent",
     "SectorRotationAgent",
+    "PairsTradingAgent",
 ]
