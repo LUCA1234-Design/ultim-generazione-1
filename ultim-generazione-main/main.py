@@ -449,11 +449,14 @@ def _handle_closed_position(
 def _manual_exit_reason_for_alert(closed: Any) -> Optional[str]:
     """Return manual early-exit reason label for signal-only mode, or None."""
     status = str(getattr(closed, "status", "") or "").lower()
-    if status == "timeout":
-        return "Timeout"
+    if status in {"timeout", "timeout_dead_trade"}:
+        return "Timeout (Trade Morto)"
     # After TP1, SL is moved/protected in engine.execution.check_position_levels;
     # an SL hit here indicates an early trailing/protected exit.
-    if status == "sl_hit" and getattr(closed, "tp1_hit", False):
+    if status == "sl_hit" and (
+        getattr(closed, "tp1_hit", False)
+        or int(getattr(closed, "trailing_stage", 0) or 0) > 0
+    ):
         return "Trailing stop"
     if "momentum" in status or "reversal" in status:
         return "Momentum esaurito"

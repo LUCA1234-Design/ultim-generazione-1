@@ -195,10 +195,25 @@ def build_early_exit_alert_message(position: Position, reason: str) -> str:
         if position.close_price is not None
         else "prezzo corrente"
     )
+    normalized_reason = str(reason or "").strip().lower()
+    is_timeout = normalized_reason.startswith("timeout")
+    title = (
+        "⚠️ USCITA PER TIMEOUT (Trade Morto) ⚠️"
+        if is_timeout
+        else "⚠️ TAKE PROFIT ANTICIPATO / USCITA ⚠️"
+    )
+    if is_timeout:
+        reason_context = ""
+    elif "trailing" in normalized_reason:
+        reason_context = " (Trailing stop)"
+    elif "momentum" in normalized_reason or "reversal" in normalized_reason:
+        reason_context = " (Momentum esaurito)"
+    else:
+        reason_context = ""
     return (
-        "⚠️ TAKE PROFIT ANTICIPATO / USCITA ⚠️\n"
+        f"{title}\n"
         f"Chiudi la posizione su {position.symbol} a {close_price_text}.\n"
-        f"Motivo: {reason} (Momentum esaurito / Trailing stop).\n"
+        f"Motivo: {reason}{reason_context}.\n"
         f"PnL stimato: {(position.pnl or 0.0):+.4f}"
     )
 

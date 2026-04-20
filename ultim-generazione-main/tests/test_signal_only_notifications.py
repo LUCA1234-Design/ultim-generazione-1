@@ -95,5 +95,47 @@ def test_handle_closed_position_sends_manual_exit_alert_for_timeout(monkeypatch)
         dashboard_state=None,
     )
 
-    manual_exit_mock.assert_called_once_with(closed, reason="Timeout")
+    manual_exit_mock.assert_called_once_with(closed, reason="Timeout (Trade Morto)")
+    notify_close_mock.assert_called_once_with(closed)
+
+
+def test_handle_closed_position_sends_manual_exit_alert_for_dynamic_trailing_stop(monkeypatch):
+    tracker = SimpleNamespace(record_position=MagicMock())
+    processor = SimpleNamespace(
+        fusion=SimpleNamespace(adapt_threshold=MagicMock()),
+        strategy=SimpleNamespace(update_strategy_outcome=MagicMock()),
+        meta=SimpleNamespace(record_outcome=MagicMock()),
+    )
+    manual_exit_mock = MagicMock()
+    notify_close_mock = MagicMock()
+
+    monkeypatch.setattr("main.send_early_exit_alert", manual_exit_mock)
+    monkeypatch.setattr("main.notify_position_closed", notify_close_mock)
+    monkeypatch.setattr("main.experience_db.update_decision_outcome", MagicMock())
+    monkeypatch.setattr("main.experience_db.save_agent_outcome", MagicMock())
+
+    closed = SimpleNamespace(
+        symbol="BTCUSDT",
+        interval="1h",
+        direction="long",
+        close_price=101.0,
+        pnl=1.0,
+        status="sl_hit",
+        tp1_hit=False,
+        trailing_stage=2,
+        paper=True,
+        strategy="",
+        decision_id="",
+    )
+
+    _handle_closed_position(
+        closed=closed,
+        processor=processor,
+        tracker=tracker,
+        decision_context={},
+        evolution_engine=None,
+        dashboard_state=None,
+    )
+
+    manual_exit_mock.assert_called_once_with(closed, reason="Trailing stop")
     notify_close_mock.assert_called_once_with(closed)
