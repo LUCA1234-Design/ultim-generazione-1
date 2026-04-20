@@ -67,7 +67,7 @@ AI_CALL_COOLDOWN = 300
 PAPER_TRADING = True           # Paper trading ON by default
 SIGNAL_ONLY = True             # Signal-only ON by default (manual execution alerts, internal paper tracking)
 ACCOUNT_BALANCE = 1000.0
-THRESHOLD_BASE = 0.35
+THRESHOLD_BASE = 0.28
 MAX_OPEN_POSITIONS = 3
 LEVERAGE = 10
 MAX_CANDLES_IN_TRADE = 6       # Dead-trade timeout: max candles allowed while |PnL%| <= DEAD_TRADE_TIMEOUT_PNL_BAND_PCT
@@ -142,8 +142,8 @@ BREAKOUT_RULES = {
 # TIME FILTERS
 # ============================================================
 
-ORARI_VIETATI_UTC = [3, 4]  # Only the 2 deadest hours (3:00-4:59 UTC = 5:00-6:59 AM Italy)
-ORARI_MIGLIORI_UTC = list(range(7, 17)) + list(range(19, 24)) + [0, 1]  # Expanded, added 0, 1, 7
+ORARI_VIETATI_UTC = []
+ORARI_MIGLIORI_UTC = list(range(0, 24))
 
 # ============================================================
 # DATA SETTINGS
@@ -239,8 +239,8 @@ TRAINING_MODE = True                # Enable reduced thresholds for fast learnin
 TRAINING_TARGET_TRADES = 200        # Completed trades required before switching to Sniper Mode
 
 # Training Mode overrides (lower thresholds to generate more signals)
-TRAINING_FUSION_THRESHOLD = 0.35
-TRAINING_MIN_FUSION_SCORE = 0.30
+TRAINING_FUSION_THRESHOLD = 0.28
+TRAINING_MIN_FUSION_SCORE = 0.20
 TRAINING_MIN_AGENT_CONFIRMATIONS = 2
 TRAINING_MIN_RR = 1.20
 TRAINING_NON_OPTIMAL_HOUR_PENALTY = 0.02
