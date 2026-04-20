@@ -61,9 +61,14 @@ class SMCAgent(BaseAgent):
         if avg_range <= 0:
             return None
         impulse_mult = impulse / avg_range
+        is_down_candle = float(prev["close"]) < float(prev["open"])
+        is_up_candle = float(prev["close"]) > float(prev["open"])
+        has_bullish_impulse = float(cur["close"]) > float(prev["high"])
+        has_bearish_impulse = float(cur["close"]) < float(prev["low"])
+        is_strong_impulse = impulse_mult > 1.1
 
         # Bullish OB: last down candle before strong up impulse.
-        if float(prev["close"]) < float(prev["open"]) and float(cur["close"]) > float(prev["high"]) and impulse_mult > 1.1:
+        if is_down_candle and has_bullish_impulse and is_strong_impulse:
             zone_low = min(float(prev["open"]), float(prev["close"]))
             zone_high = max(float(prev["open"]), float(prev["close"]))
             return {
@@ -76,7 +81,7 @@ class SMCAgent(BaseAgent):
             }
 
         # Bearish OB: last up candle before strong down impulse.
-        if float(prev["close"]) > float(prev["open"]) and float(cur["close"]) < float(prev["low"]) and impulse_mult > 1.1:
+        if is_up_candle and has_bearish_impulse and is_strong_impulse:
             zone_low = min(float(prev["open"]), float(prev["close"]))
             zone_high = max(float(prev["open"]), float(prev["close"]))
             return {

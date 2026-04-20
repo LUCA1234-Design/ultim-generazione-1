@@ -57,16 +57,9 @@ class StrategyAgent(BaseAgent):
     @staticmethod
     def _adaptive_macd_periods(vol_ratio: float) -> Tuple[int, int, int]:
         fast = adaptive_period(12, vol_ratio, min_period=6, max_period=18)
-        slow = adaptive_period(26, vol_ratio, min_period=13, max_period=39)
-        signal = adaptive_period(9, vol_ratio, min_period=5, max_period=14)
-
-        # Keep MACD periods valid and ordered.
-        if slow <= fast:
-            slow = min(39, fast + 1)
-        if fast >= slow:
-            fast = max(6, slow - 1)
-        if signal >= slow:
-            signal = max(5, slow - 2)
+        slow = adaptive_period(26, vol_ratio, min_period=max(13, fast + 1), max_period=39)
+        signal_max = max(5, min(14, slow - 1))
+        signal = int(np.clip(adaptive_period(9, vol_ratio, min_period=5, max_period=14), 5, signal_max))
         return int(fast), int(slow), int(signal)
 
     def _eval_strategy(self, df: pd.DataFrame, params: StrategyParams,

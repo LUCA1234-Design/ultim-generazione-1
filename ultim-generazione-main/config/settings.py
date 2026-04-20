@@ -191,7 +191,7 @@ FUSION_AGENT_WEIGHTS = {
     "regime": 0.15,
     "pattern": 0.30,       # unchanged — pattern detection is the core signal source
     "confluence": 0.30,    # raised from 0.25 — MTF confluence is the key filter
-    "smc": 0.12,           # Phase 12: SMC FVG/OB institutional signal
+    "smc": 0.12,           # Smart Money Concepts (Phase 12 institutional upgrade)
     "risk": 0.15,          # unchanged
     "strategy": 0.05,      # reduced from 0.15 — mutated strategies are noisy
     "meta": 0.05,          # unchanged
