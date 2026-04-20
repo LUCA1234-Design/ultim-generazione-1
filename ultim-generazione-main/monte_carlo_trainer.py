@@ -55,8 +55,9 @@ def simulate_close_path(
 ) -> np.ndarray:
     if steps <= 1:
         return np.array([initial_price], dtype=float)
+    initial_log_price = np.log(max(initial_price, 1e-8))
     shocks = rng.normal(loc=drift, scale=max(vol, 1e-8), size=steps - 1)
-    log_prices = np.concatenate([[np.log(max(initial_price, 1e-8))], np.log(max(initial_price, 1e-8)) + np.cumsum(shocks)])
+    log_prices = np.concatenate([[initial_log_price], initial_log_price + np.cumsum(shocks)])
     return np.exp(log_prices)
 
 
@@ -195,7 +196,6 @@ def run_training(
             close_path = simulate_close_path(initial_price, drift, vol, sim_steps, rng)
             df_sim = build_ohlcv_from_close(close_path, rng)
             total_decisions += _train_on_path(symbol, interval, df_sim, agents, meta, fusion)
-        meta.adjust_weights()
 
     weight_map = meta.adjust_weights()
     meta.save_state(state_path)
