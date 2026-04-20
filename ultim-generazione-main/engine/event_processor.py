@@ -39,6 +39,13 @@ from config.settings import (
 
 logger = logging.getLogger("EventProcessor")
 _MIN_CORRELATION_POINTS = 20
+# Smart limit-entry profile (Phase 11):
+# - depth levels/timeout keep book lookup fast for low-latency signal routing.
+# - 0.05% offsets simulate maker-style micro-retracement entries.
+_SMART_LIMIT_DEPTH_LEVELS = 5
+_SMART_LIMIT_DEPTH_TIMEOUT_SECONDS = 0.35
+_SMART_LIMIT_LONG_OFFSET_MULT = 0.9995
+_SMART_LIMIT_SHORT_OFFSET_MULT = 1.0005
 
 
 class EventProcessor:
@@ -121,15 +128,24 @@ class EventProcessor:
     def _skip(self, reason: str) -> None:
         self._skip_reasons[reason] = self._skip_reasons.get(reason, 0) + 1
 
-    @staticmethod
-    def _smart_limit_entry_price(symbol: str, direction: str, fallback_price: float) -> float:
-        """Return a maker-style limit entry near top of book (Phase 11)."""
+    def _smart_limit_entry_price(self, symbol: str, direction: str, fallback_price: float) -> float:
+        """Return a maker-style limit entry near top of book (Phase 11).
+
+        Uses shallow depth (`limit=5`, timeout `0.35s`). For longs, applies a
+        multiplier of `0.9995` (0.05% below best bid); for shorts, multiplier
+        `1.0005` (0.05% above best ask).
+        If depth is unavailable/invalid, falls back to `fallback_price`.
+        """
         try:
             fallback = float(fallback_price)
         except (TypeError, ValueError):
-            return 0.0
+            fallback = 0.0
 
-        depth = fetch_futures_depth(symbol, limit=5, timeout=0.35)
+        depth = fetch_futures_depth(
+            symbol,
+            limit=_SMART_LIMIT_DEPTH_LEVELS,
+            timeout=_SMART_LIMIT_DEPTH_TIMEOUT_SECONDS,
+        )
         bids = depth.get("bids", []) if isinstance(depth, dict) else []
         asks = depth.get("asks", []) if isinstance(depth, dict) else []
 
@@ -142,11 +158,19 @@ class EventProcessor:
         except (TypeError, ValueError, IndexError):
             best_ask = fallback
 
-        if (direction or "").lower() == "long":
-            entry = best_bid * 0.9995
+        if not isinstance(best_bid, (int, float)) or best_bid <= 0:
+            best_bid = fallback
+        if not isinstance(best_ask, (int, float)) or best_ask <= 0:
+            best_ask = fallback
+
+        normalized_direction = str(direction).lower() if direction is not None else ""
+        if normalized_direction not in {"long", "short"}:
+            return float(fallback)
+        if normalized_direction == "long":
+            entry = best_bid * _SMART_LIMIT_LONG_OFFSET_MULT
         else:
-            entry = best_ask * 1.0005
-        return entry if entry > 0 else fallback
+            entry = best_ask * _SMART_LIMIT_SHORT_OFFSET_MULT
+        return float(entry) if entry > 0 else float(fallback)
 
     # ------------------------------------------------------------------
     # Correlation guard
@@ -387,7 +411,7 @@ class EventProcessor:
                 )
                 return None
 
-            score_adjustment = float(gravity_meta.get("score_adjustment", 0.0) or 0.0)
+            score_adjustment = float(gravity_meta.get("score_adjustment", 0.0))
             if score_adjustment != 0.0:
                 fusion_result.final_score = max(0.0, min(1.0, fusion_result.final_score + score_adjustment))
                 fusion_result.reasoning.append(
