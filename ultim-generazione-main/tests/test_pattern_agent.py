@@ -36,6 +36,27 @@ class TestPatternAgent:
         assert result.direction in ("long", "short", "neutral")
         assert result.agent_name == "pattern"
 
+    def test_analyse_exposes_dynamic_period_metadata(self, ohlcv_df):
+        result = self.agent.analyse("BTCUSDT", "1h", ohlcv_df)
+        if result is None:
+            pytest.skip("Insufficient data")
+        assert "dynamic_rsi_period" in result.metadata
+        assert "dynamic_adx_period" in result.metadata
+        assert 7 <= result.metadata["dynamic_rsi_period"] <= 21
+
+    def test_analyse_passes_adaptive_rsi_period_to_divergence_detector(self, ohlcv_df, monkeypatch):
+        captured = {"period": None}
+
+        def _spy(_df, rsi_period=14, lookback=30):
+            captured["period"] = rsi_period
+            return None, None
+
+        monkeypatch.setattr(self.agent, "detect_rsi_divergence", _spy)
+        result = self.agent.analyse("BTCUSDT", "1h", ohlcv_df)
+        if result is None:
+            pytest.skip("Insufficient data")
+        assert captured["period"] == result.metadata["dynamic_rsi_period"]
+
     # ------------------------------------------------------------------
     # Pattern detectors
     # ------------------------------------------------------------------

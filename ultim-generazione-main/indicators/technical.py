@@ -167,3 +167,34 @@ def volume_ratio(df: pd.DataFrame, lookback: int = 20) -> pd.Series:
     """Current volume divided by rolling average volume."""
     avg = df["volume"].rolling(lookback).mean()
     return df["volume"] / avg.replace(0, np.nan)
+
+
+# ---------------------------------------------------------------------------
+# Adaptive periods (volatility-aware)
+# ---------------------------------------------------------------------------
+
+def atr_volatility_ratio(df: pd.DataFrame, atr_period: int = 14, lookback: int = 50) -> float:
+    """Return average ATR/close ratio over `lookback` bars."""
+    if df is None or len(df) < max(atr_period + 2, lookback):
+        return 0.02
+    atr_series = atr(df, atr_period).dropna()
+    if atr_series.empty:
+        return 0.02
+    close = df["close"].iloc[-len(atr_series):].replace(0, np.nan)
+    ratio = (atr_series / close).replace([np.inf, -np.inf], np.nan).dropna()
+    if ratio.empty:
+        return 0.02
+    return float(ratio.iloc[-lookback:].mean())
+
+
+def adaptive_period(
+    base_period: int,
+    volatility_ratio: float,
+    min_period: int = 5,
+    max_period: int = 50,
+) -> int:
+    """Scale lookback inversely to volatility (high vol -> shorter period)."""
+    vol = float(np.clip(volatility_ratio, 0.001, 0.25))
+    reference = 0.02
+    scaled = int(round(base_period * (reference / vol)))
+    return int(np.clip(scaled, min_period, max_period))

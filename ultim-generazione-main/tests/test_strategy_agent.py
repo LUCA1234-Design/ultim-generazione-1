@@ -34,6 +34,15 @@ class TestStrategyAgent:
         assert result.direction in ("long", "short", "neutral")
         assert result.agent_name == "strategy"
 
+    def test_analyse_exposes_dynamic_indicator_metadata(self, ohlcv_df):
+        result = self.agent.analyse("BTCUSDT", "1h", ohlcv_df)
+        if result is None:
+            pytest.skip("Insufficient data")
+        assert "dynamic_rsi_period" in result.metadata
+        assert "dynamic_macd_fast" in result.metadata
+        assert "dynamic_macd_slow" in result.metadata
+        assert result.metadata["dynamic_macd_fast"] < result.metadata["dynamic_macd_slow"]
+
     # ------------------------------------------------------------------
     # Strategy evaluation
     # ------------------------------------------------------------------

@@ -11,7 +11,10 @@ import pandas as pd
 from typing import Dict, List, Optional, Tuple
 
 from agents.base_agent import BaseAgent, AgentResult
-from indicators.technical import rsi, atr, macd, adx, bollinger_bands, zscore
+from indicators.technical import (
+    rsi, atr, macd, adx, bollinger_bands, zscore,
+    atr_volatility_ratio, adaptive_period,
+)
 
 logger = logging.getLogger("StrategyAgent")
 
@@ -51,6 +54,14 @@ class StrategyAgent(BaseAgent):
     # Strategy evaluation
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _adaptive_macd_periods(vol_ratio: float) -> Tuple[int, int, int]:
+        fast = adaptive_period(12, vol_ratio, min_period=6, max_period=18)
+        slow = adaptive_period(26, vol_ratio, min_period=max(13, fast + 1), max_period=39)
+        signal_max = max(6, min(14, slow - 1))
+        signal = int(np.clip(adaptive_period(9, vol_ratio, min_period=6, max_period=14), 6, signal_max))
+        return int(fast), int(slow), int(signal)
+
     def _eval_strategy(self, df: pd.DataFrame, params: StrategyParams,
                         direction: str) -> float:
         """Evaluate a single strategy against current market conditions.
@@ -58,10 +69,15 @@ class StrategyAgent(BaseAgent):
         """
         try:
             close = df["close"]
-            rsi_val = float(rsi(close, 14).iloc[-1])
-            adx_s, di_p, di_m = adx(df, 14)
+            vol_ratio = atr_volatility_ratio(df)
+            rsi_period = adaptive_period(14, vol_ratio, min_period=7, max_period=21)
+            adx_period = adaptive_period(14, vol_ratio, min_period=10, max_period=28)
+            macd_fast, macd_slow, macd_signal = self._adaptive_macd_periods(vol_ratio)
+
+            rsi_val = float(rsi(close, rsi_period).iloc[-1])
+            adx_s, di_p, di_m = adx(df, adx_period)
             last_adx = float(adx_s.iloc[-1])
-            macd_l, macd_sig, macd_hist = macd(close)
+            macd_l, macd_sig, macd_hist = macd(close, fast=macd_fast, slow=macd_slow, signal=macd_signal)
             last_hist = float(macd_hist.iloc[-1])
             prev_hist = float(macd_hist.iloc[-2]) if len(macd_hist) > 2 else last_hist
             bb_up, bb_mid, bb_lo = bollinger_bands(close, 20, 2.0)
@@ -256,6 +272,9 @@ class StrategyAgent(BaseAgent):
 
         strategy_name, match_score = self.best_strategy(df, direction)
         details = [f"strategy={strategy_name}", f"match={match_score:.2f}"]
+        vol_ratio = atr_volatility_ratio(df)
+        dyn_rsi = adaptive_period(14, vol_ratio, min_period=7, max_period=21)
+        dyn_macd_fast, dyn_macd_slow, dyn_macd_signal = self._adaptive_macd_periods(vol_ratio)
 
         # Historical performance of this strategy
         hist_score = self._strategy_scores.get(strategy_name, 0.5)
@@ -279,5 +298,10 @@ class StrategyAgent(BaseAgent):
                 "match_score": match_score,
                 "hist_score": hist_score,
                 "n_samples": n,
+                "dynamic_rsi_period": int(dyn_rsi),
+                "dynamic_macd_fast": int(dyn_macd_fast),
+                "dynamic_macd_slow": int(dyn_macd_slow),
+                "dynamic_macd_signal": int(dyn_macd_signal),
+                "volatility_ratio": float(vol_ratio),
             },
         )
