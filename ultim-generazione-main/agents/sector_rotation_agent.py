@@ -83,8 +83,6 @@ class SectorRotationAgent(BaseAgent):
         hot = adjustment >= 0.03
         cold = adjustment <= -0.03
         direction = str(direction or "neutral").lower()
-        if direction == "short":
-            adjustment *= -1.0
 
         details = [f"sector={sector}", f"flow={flow:+.4f}", f"adj={adjustment:+.3f}"]
         if hot:
