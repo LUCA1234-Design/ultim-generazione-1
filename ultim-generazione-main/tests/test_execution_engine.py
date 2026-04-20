@@ -181,6 +181,51 @@ class TestExecutionEngineScaleOutAndTrailing:
         d_high = engine._dynamic_trail_distance(high_atr, 112.0)
         assert d_high > d_low
 
+    def test_phase10_dynamic_trailing_moves_sl_to_breakeven_then_locks_profit_long(self):
+        engine = ExecutionEngine(paper_trading=True, initial_balance=1000.0)
+        pos = engine.open_position(
+            symbol="BTCUSDT",
+            interval="1h",
+            direction="long",
+            entry_price=100.0,
+            size=1.0,
+            sl=95.0,
+            tp1=110.0,
+            tp2=120.0,
+        )
+        assert pos is not None
+
+        engine.check_position_levels("BTCUSDT", 101.0)  # +1%
+        assert pos.sl == pytest.approx(100.0)
+        assert pos.trailing_stage == 1
+
+        engine.check_position_levels("BTCUSDT", 102.0)  # +2%
+        assert pos.sl == pytest.approx(101.0)
+        assert pos.trailing_stage == 2
+
+    def test_dead_trade_timeout_closes_stuck_position_after_max_candles(self, monkeypatch):
+        fake_now = [0.0]
+        monkeypatch.setattr("engine.execution.time.time", lambda: fake_now[0])
+
+        engine = ExecutionEngine(paper_trading=True, initial_balance=1000.0)
+        pos = engine.open_position(
+            symbol="BTCUSDT",
+            interval="15m",
+            direction="long",
+            entry_price=100.0,
+            size=1.0,
+            sl=95.0,
+            tp1=110.0,
+            tp2=120.0,
+        )
+        assert pos is not None
+        pos.open_time = 0.0
+
+        fake_now[0] = (7 * 900) + 1  # > 6 candles on 15m
+        closed = engine.check_position_levels("BTCUSDT", 100.3)  # +0.3% (stuck band)
+        assert len(closed) == 1
+        assert closed[0].status == "timeout_dead_trade"
+
     def test_user_stream_reduce_only_partial_then_full_close(self, monkeypatch):
         monkeypatch.setattr(
             "engine.execution.place_futures_order",

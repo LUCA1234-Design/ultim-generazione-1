@@ -21,6 +21,10 @@ from config.settings import (
     MAX_DAILY_LOSS_PCT,
     MAX_CONSECUTIVE_LOSSES,
     TRAINING_MODE,
+    MAX_CANDLES_IN_TRADE,
+    DYNAMIC_TRAILING_BREAKEVEN_PCT,
+    DYNAMIC_TRAILING_LOCK_PCT,
+    DYNAMIC_TRAILING_LOCK_SL_PCT,
 )
 from data.binance_client import place_futures_order
 from memory import experience_db
@@ -42,6 +46,8 @@ _ATR_TRAIL_MULT_AT_TP1 = 1.2
 _ATR_TRAIL_MULT_AT_TP2 = 0.6
 if _TRAIL_PCT_AT_TP2 >= _TRAIL_PCT_AT_TP1:
     raise ValueError("Dynamic trailing requires _TRAIL_PCT_AT_TP2 < _TRAIL_PCT_AT_TP1")
+_DEAD_TRADE_BAND_PCT = 0.5
+_INTERVAL_SECONDS = {"15m": 900, "1h": 3600, "4h": 14400}
 
 
 # ---------------------------------------------------------------------------
@@ -74,6 +80,7 @@ class Position:
     initial_atr: Optional[float] = None
     decision_id: str = ""
     paper: bool = True
+    trailing_stage: int = 0
 
     def __post_init__(self) -> None:
         if self.initial_size is None:
@@ -118,6 +125,7 @@ class Position:
             "initial_sl": self.initial_sl,
             "realized_pnl": self.realized_pnl,
             "paper": self.paper,
+            "trailing_stage": self.trailing_stage,
         }
 
 
@@ -457,9 +465,24 @@ class ExecutionEngine:
                 if pos.symbol != symbol:
                     continue
 
-                # Check position timeout before SL/TP
-                max_age = _MAX_POSITION_AGE.get(pos.interval, 172800)
-                if time.time() - pos.open_time > max_age:
+                now_ts = time.time()
+                self._apply_phase10_dynamic_trailing(pos, current_price)
+
+                # Dead-trade timeout by candles: close only if the trade is stuck in a narrow range.
+                candles_open = (now_ts - pos.open_time) / self._interval_seconds(pos.interval)
+                pnl_pct = self._position_profit_pct(pos, current_price)
+                if candles_open > MAX_CANDLES_IN_TRADE and abs(pnl_pct) <= _DEAD_TRADE_BAND_PCT:
+                    logger.info(
+                        f"⏳ DEAD-TRADE TIMEOUT [{pos_id}] {pos.symbol}/{pos.interval} — "
+                        f"candles={candles_open:.1f} pnl={pnl_pct:+.2f}%"
+                    )
+                    to_close.append((pos_id, current_price, "timeout_dead_trade"))
+                    continue
+
+                # Hard timeout fallback for very old positions.
+                min_timeout = self._interval_seconds(pos.interval) * (MAX_CANDLES_IN_TRADE + 1)
+                max_age = max(_MAX_POSITION_AGE.get(pos.interval, 172800), min_timeout)
+                if now_ts - pos.open_time > max_age:
                     logger.info(
                         f"⏰ TIMEOUT [{pos_id}] {pos.symbol}/{pos.interval} — "
                         f"open for >{max_age}s, closing at {current_price:.4f}"
@@ -532,6 +555,55 @@ class ExecutionEngine:
                     closed_positions.append(closed)
 
             return closed_positions
+
+    @staticmethod
+    def _interval_seconds(interval: str) -> int:
+        return int(_INTERVAL_SECONDS.get(str(interval), 3600))
+
+    @staticmethod
+    def _position_profit_pct(pos: Position, current_price: float) -> float:
+        if pos.entry_price == 0:
+            return 0.0
+        if pos.direction == "long":
+            return ((current_price - pos.entry_price) / pos.entry_price) * 100.0
+        return ((pos.entry_price - current_price) / pos.entry_price) * 100.0
+
+    def _apply_phase10_dynamic_trailing(self, pos: Position, current_price: float) -> None:
+        """Phase 10 dynamic SL progression: breakeven at +1%, lock +1% at +2%."""
+        pnl_pct = self._position_profit_pct(pos, current_price)
+        target_sl: Optional[float] = None
+        stage = pos.trailing_stage
+
+        if pnl_pct >= DYNAMIC_TRAILING_LOCK_PCT:
+            lock_mult = DYNAMIC_TRAILING_LOCK_SL_PCT / 100.0
+            target_sl = (
+                pos.entry_price * (1.0 + lock_mult)
+                if pos.direction == "long"
+                else pos.entry_price * (1.0 - lock_mult)
+            )
+            stage = 2
+        elif pnl_pct >= DYNAMIC_TRAILING_BREAKEVEN_PCT:
+            target_sl = pos.entry_price
+            stage = 1
+
+        if target_sl is None:
+            return
+
+        moved = False
+        if pos.direction == "long" and target_sl > pos.sl:
+            pos.sl = target_sl
+            moved = True
+        elif pos.direction == "short" and target_sl < pos.sl:
+            pos.sl = target_sl
+            moved = True
+
+        if moved and stage > pos.trailing_stage:
+            pos.trailing_stage = stage
+            label = "BREAKEVEN" if stage == 1 else "TRAIL +1%"
+            logger.info(
+                f"🛡️ DYNAMIC SL [{pos.position_id}] {pos.symbol} "
+                f"stage={label} pnl={pnl_pct:+.2f}% -> SL={pos.sl:.4f}"
+            )
 
     def _dynamic_trail_distance(self, pos: Position, current_price: float) -> float:
         """Return trailing distance for post-TP1 management.
