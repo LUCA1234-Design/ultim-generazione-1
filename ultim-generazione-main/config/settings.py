@@ -70,7 +70,7 @@ ACCOUNT_BALANCE = 1000.0
 THRESHOLD_BASE = 0.35
 MAX_OPEN_POSITIONS = 3
 LEVERAGE = 10
-MAX_CANDLES_IN_TRADE = 6       # Dead-trade timeout: max candles allowed in configurable low-range PnL before forced exit
+MAX_CANDLES_IN_TRADE = 6       # Dead-trade timeout: max candles allowed while |PnL%| <= DEAD_TRADE_TIMEOUT_PNL_BAND_PCT
 DEAD_TRADE_TIMEOUT_PNL_BAND_PCT = 0.5
 DYNAMIC_TRAILING_BREAKEVEN_PCT = 1.0
 DYNAMIC_TRAILING_LOCK_PCT = 2.0

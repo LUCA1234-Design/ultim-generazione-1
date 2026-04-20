@@ -49,6 +49,8 @@ _ATR_TRAIL_MULT_AT_TP2 = 0.6
 if _TRAIL_PCT_AT_TP2 >= _TRAIL_PCT_AT_TP1:
     raise ValueError("Dynamic trailing requires _TRAIL_PCT_AT_TP2 < _TRAIL_PCT_AT_TP1")
 _INTERVAL_SECONDS = {"15m": 900, "1h": 3600, "4h": 14400}
+_HARD_TIMEOUT_CANDLE_BUFFER = 1
+_TRAILING_STAGE_LABELS = {1: "BREAKEVEN", 2: "TRAIL +1%"}
 
 
 # ---------------------------------------------------------------------------
@@ -481,7 +483,9 @@ class ExecutionEngine:
                     continue
 
                 # Hard timeout fallback for very old positions.
-                min_timeout = self._interval_seconds(pos.interval) * (MAX_CANDLES_IN_TRADE + 1)
+                min_timeout = self._interval_seconds(pos.interval) * (
+                    MAX_CANDLES_IN_TRADE + _HARD_TIMEOUT_CANDLE_BUFFER
+                )
                 max_age = max(_MAX_POSITION_AGE.get(pos.interval, 172800), min_timeout)
                 if now_ts - pos.open_time > max_age:
                     logger.info(
@@ -618,7 +622,7 @@ class ExecutionEngine:
 
         if moved and stage > pos.trailing_stage:
             pos.trailing_stage = stage
-            label = "BREAKEVEN" if stage == 1 else "TRAIL +1%"
+            label = _TRAILING_STAGE_LABELS.get(stage, f"STAGE {stage}")
             logger.info(
                 f"🛡️ DYNAMIC SL [{pos.position_id}] {pos.symbol} "
                 f"stage={label} pnl={pnl_pct:+.2f}% -> SL={pos.sl:.4f}"
