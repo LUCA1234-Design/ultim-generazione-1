@@ -54,6 +54,21 @@ class StrategyAgent(BaseAgent):
     # Strategy evaluation
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _adaptive_macd_periods(vol_ratio: float) -> Tuple[int, int, int]:
+        fast = adaptive_period(12, vol_ratio, min_period=6, max_period=18)
+        slow = adaptive_period(26, vol_ratio, min_period=13, max_period=39)
+        signal = adaptive_period(9, vol_ratio, min_period=5, max_period=14)
+
+        # Keep MACD periods valid and ordered.
+        if slow <= fast:
+            slow = min(39, fast + 1)
+        if fast >= slow:
+            fast = max(6, slow - 1)
+        if signal >= slow:
+            signal = max(5, slow - 2)
+        return int(fast), int(slow), int(signal)
+
     def _eval_strategy(self, df: pd.DataFrame, params: StrategyParams,
                         direction: str) -> float:
         """Evaluate a single strategy against current market conditions.
@@ -64,11 +79,7 @@ class StrategyAgent(BaseAgent):
             vol_ratio = atr_volatility_ratio(df)
             rsi_period = adaptive_period(14, vol_ratio, min_period=7, max_period=21)
             adx_period = adaptive_period(14, vol_ratio, min_period=10, max_period=28)
-            macd_fast = adaptive_period(12, vol_ratio, min_period=6, max_period=18)
-            macd_slow = adaptive_period(26, vol_ratio, min_period=13, max_period=39)
-            macd_signal = adaptive_period(9, vol_ratio, min_period=5, max_period=14)
-            if macd_fast >= macd_slow:
-                macd_fast = max(5, macd_slow - 1)
+            macd_fast, macd_slow, macd_signal = self._adaptive_macd_periods(vol_ratio)
 
             rsi_val = float(rsi(close, rsi_period).iloc[-1])
             adx_s, di_p, di_m = adx(df, adx_period)
@@ -270,8 +281,7 @@ class StrategyAgent(BaseAgent):
         details = [f"strategy={strategy_name}", f"match={match_score:.2f}"]
         vol_ratio = atr_volatility_ratio(df)
         dyn_rsi = adaptive_period(14, vol_ratio, min_period=7, max_period=21)
-        dyn_macd_fast = adaptive_period(12, vol_ratio, min_period=6, max_period=18)
-        dyn_macd_slow = adaptive_period(26, vol_ratio, min_period=13, max_period=39)
+        dyn_macd_fast, dyn_macd_slow, dyn_macd_signal = self._adaptive_macd_periods(vol_ratio)
 
         # Historical performance of this strategy
         hist_score = self._strategy_scores.get(strategy_name, 0.5)
@@ -297,7 +307,8 @@ class StrategyAgent(BaseAgent):
                 "n_samples": n,
                 "dynamic_rsi_period": int(dyn_rsi),
                 "dynamic_macd_fast": int(dyn_macd_fast),
-                "dynamic_macd_slow": int(max(dyn_macd_slow, dyn_macd_fast + 1)),
+                "dynamic_macd_slow": int(dyn_macd_slow),
+                "dynamic_macd_signal": int(dyn_macd_signal),
                 "volatility_ratio": float(vol_ratio),
             },
         )
