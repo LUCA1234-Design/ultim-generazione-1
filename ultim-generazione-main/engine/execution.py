@@ -22,6 +22,7 @@ from config.settings import (
     MAX_CONSECUTIVE_LOSSES,
     TRAINING_MODE,
     MAX_CANDLES_IN_TRADE,
+    DEAD_TRADE_TIMEOUT_PNL_BAND_PCT,
     DYNAMIC_TRAILING_BREAKEVEN_PCT,
     DYNAMIC_TRAILING_LOCK_PCT,
     DYNAMIC_TRAILING_LOCK_SL_PCT,
@@ -47,7 +48,6 @@ _ATR_TRAIL_MULT_AT_TP1 = 1.2
 _ATR_TRAIL_MULT_AT_TP2 = 0.6
 if _TRAIL_PCT_AT_TP2 >= _TRAIL_PCT_AT_TP1:
     raise ValueError("Dynamic trailing requires _TRAIL_PCT_AT_TP2 < _TRAIL_PCT_AT_TP1")
-_DEAD_TRADE_BAND_PCT = 0.5
 _INTERVAL_SECONDS = {"15m": 900, "1h": 3600, "4h": 14400}
 
 
@@ -470,12 +470,12 @@ class ExecutionEngine:
                 self._apply_phase10_dynamic_trailing(pos, current_price)
 
                 # Dead-trade timeout by candles: close only if the trade is stuck in a narrow range.
-                candles_open = (now_ts - pos.open_time) / self._interval_seconds(pos.interval)
+                candles_elapsed = (now_ts - pos.open_time) / self._interval_seconds(pos.interval)
                 pnl_pct = self._position_profit_pct(pos, current_price)
-                if candles_open > MAX_CANDLES_IN_TRADE and abs(pnl_pct) <= _DEAD_TRADE_BAND_PCT:
+                if candles_elapsed > MAX_CANDLES_IN_TRADE and abs(pnl_pct) <= DEAD_TRADE_TIMEOUT_PNL_BAND_PCT:
                     logger.info(
                         f"⏳ DEAD-TRADE TIMEOUT [{pos_id}] {pos.symbol}/{pos.interval} — "
-                        f"candles={candles_open:.1f} pnl={pnl_pct:+.2f}%"
+                        f"candles={candles_elapsed:.1f} pnl={pnl_pct:+.2f}%"
                     )
                     to_close.append((pos_id, current_price, "timeout_dead_trade"))
                     continue
@@ -569,7 +569,10 @@ class ExecutionEngine:
                 return value * 60
             if unit == "h":
                 return value * 3600
-        logger.warning(f"Unknown interval '{interval}' in ExecutionEngine; using 3600s fallback")
+        logger.warning(
+            f"Unknown interval '{interval}' in ExecutionEngine; using 3600s fallback. "
+            "Please verify interval format (e.g., 15m, 1h, 4h)."
+        )
         return 3600
 
     @staticmethod

@@ -195,7 +195,8 @@ def build_early_exit_alert_message(position: Position, reason: str) -> str:
         if position.close_price is not None
         else "prezzo corrente"
     )
-    is_timeout = "timeout" in str(reason or "").lower()
+    normalized_reason = str(reason or "").strip().lower()
+    is_timeout = normalized_reason.startswith("timeout")
     title = (
         "⚠️ USCITA PER TIMEOUT (Trade Morto) ⚠️"
         if is_timeout
