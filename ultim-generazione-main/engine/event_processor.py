@@ -15,6 +15,8 @@ from agents.risk_agent import RiskAgent
 from agents.strategy_agent import StrategyAgent
 from agents.meta_agent import MetaAgent
 from agents.market_gravity_agent import MarketGravityAgent
+from agents.smc_agent import SMCAgent
+from agents.sector_rotation_agent import SectorRotationAgent
 from engine.decision_fusion import DecisionFusion, FusionResult, DECISION_HOLD, _SNIPER_MIN_AGREEING_TIMEFRAMES
 from engine.execution import ExecutionEngine
 from engine.volume_trigger import VolumeTrigger
@@ -35,6 +37,7 @@ from config.settings import (
     SIGNAL_ONLY,
     SENTIMENT_NEGATIVE_BLOCK_THRESHOLD,
     SENTIMENT_POSITIVE_BLOCK_THRESHOLD,
+    SMC_MIN_SCORE_FOR_LIMIT_ENTRY,
 )
 
 logger = logging.getLogger("EventProcessor")
@@ -64,6 +67,8 @@ class EventProcessor:
         on_signal: Optional[Callable] = None,
         volume_trigger: Optional[VolumeTrigger] = None,
         market_gravity_agent: Optional[MarketGravityAgent] = None,
+        smc_agent: Optional[SMCAgent] = None,
+        sector_rotation_agent: Optional[SectorRotationAgent] = None,
     ):
         self.pattern = pattern_agent
         self.regime = regime_agent
@@ -76,6 +81,8 @@ class EventProcessor:
         self.on_signal = on_signal  # callback for notifications
         self.volume_trigger = volume_trigger or VolumeTrigger()
         self.market_gravity = market_gravity_agent or MarketGravityAgent()
+        self.smc = smc_agent or SMCAgent()
+        self.sector_rotation = sector_rotation_agent or SectorRotationAgent()
 
         self._last_signal_time: Dict[str, float] = {}
         self._processed_count = 0
@@ -105,6 +112,7 @@ class EventProcessor:
             "negative_news_sentiment": 0,
             "positive_news_sentiment": 0,
             "market_gravity_veto": 0,
+            "smc_direction_mismatch": 0,
         }
 
     # ------------------------------------------------------------------
@@ -328,6 +336,19 @@ class EventProcessor:
         # Confluence agent
         confluence_result = self.confluence.safe_analyse(symbol, interval, df, direction_hint)
         if confluence_result is not None:
+            sector_result = self.sector_rotation.safe_analyse(
+                symbol,
+                interval,
+                df,
+                direction=direction_hint,
+            )
+            if sector_result is not None:
+                sector_adj = float(sector_result.metadata.get("confluence_adjustment", 0.0))
+                if sector_adj != 0.0:
+                    confluence_result.score = max(0.0, min(1.0, float(confluence_result.score) + sector_adj))
+                    confluence_result.details.append(f"sector_adj={sector_adj:+.3f}")
+                    confluence_result.metadata = dict(confluence_result.metadata or {})
+                    confluence_result.metadata["sector_rotation"] = sector_result.metadata
             agent_results["confluence"] = confluence_result
             # ---- SNIPER: Require at least 2/3 TFs agreeing ----
             agreeing_tfs = confluence_result.metadata.get("agreeing_tfs", 0) if confluence_result.metadata else 0
@@ -349,6 +370,22 @@ class EventProcessor:
         strategy_result = self.strategy.safe_analyse(symbol, interval, df, direction_hint)
         if strategy_result is not None:
             agent_results["strategy"] = strategy_result
+
+        smc_result = self.smc.safe_analyse(symbol, interval, df, direction=direction_hint)
+        if smc_result is not None:
+            if (
+                direction_hint in {"long", "short"}
+                and smc_result.direction in {"long", "short"}
+                and direction_hint != smc_result.direction
+                and smc_result.score >= SMC_MIN_SCORE_FOR_LIMIT_ENTRY
+            ):
+                self._skip("smc_direction_mismatch")
+                logger.info(
+                    f"⛔ {symbol}/{interval} SKIP: smc_direction_mismatch "
+                    f"hint={direction_hint} smc={smc_result.direction} score={smc_result.score:.2f}"
+                )
+                return None
+            agent_results["smc"] = smc_result
 
         # Meta agent
         meta_result = self.meta.safe_analyse(symbol, interval, df, agent_results)
@@ -451,6 +488,18 @@ class EventProcessor:
         size = risk_meta.get("size", 0.001)
         base_entry = risk_meta.get("entry", float(df["close"].iloc[-1]))
         entry = self._smart_limit_entry_price(symbol, fusion_result.decision, base_entry)
+        if smc_result is not None:
+            smc_meta = smc_result.metadata or {}
+            smc_limit = smc_meta.get("limit_entry")
+            if (
+                isinstance(smc_limit, (int, float))
+                and float(smc_limit) > 0
+                and smc_result.score >= SMC_MIN_SCORE_FOR_LIMIT_ENTRY
+            ):
+                entry = float(smc_limit)
+                fusion_result.reasoning.append(
+                    f"SMC_LIMIT_ENTRY: {entry:.4f} ({smc_meta.get('setup', 'unknown')})"
+                )
         initial_atr = risk_meta.get("atr")
         strategy_name = strategy_result.metadata.get("strategy", "") if strategy_result else ""
 

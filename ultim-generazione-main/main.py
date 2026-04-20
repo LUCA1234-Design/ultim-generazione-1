@@ -47,6 +47,8 @@ from agents.risk_agent import RiskAgent
 from agents.strategy_agent import StrategyAgent
 from agents.meta_agent import MetaAgent
 from agents.sentiment_agent import SentimentAgent
+from agents.smc_agent import SMCAgent
+from agents.sector_rotation_agent import SectorRotationAgent
 
 # ---- Engine ----
 from engine.decision_fusion import DecisionFusion
@@ -199,7 +201,9 @@ def build_system(dashboard_state: Optional[DashboardState] = None):
     confluence = ConfluenceAgent()
     risk = RiskAgent()
     strategy = StrategyAgent()
-    meta = MetaAgent(agents=[pattern, regime, confluence, risk, strategy])
+    smc = SMCAgent()
+    sector_rotation = SectorRotationAgent()
+    meta = MetaAgent(agents=[pattern, regime, confluence, risk, strategy, smc])
 
     fusion = DecisionFusion()
     execution = ExecutionEngine(paper_trading=PAPER_TRADING, initial_balance=ACCOUNT_BALANCE)
@@ -274,6 +278,8 @@ def build_system(dashboard_state: Optional[DashboardState] = None):
         fusion=fusion,
         execution=execution,
         on_signal=on_signal,
+        smc_agent=smc,
+        sector_rotation_agent=sector_rotation,
     )
 
     logger.info("✅ V17 agent system ready")
@@ -689,6 +695,8 @@ def main():
     logger.info("   - Confluence Agent (Probabilistic MTF): ON")
     logger.info("   - Risk Agent (Kelly + real win rates): ON")
     logger.info("   - Strategy Agent (generation + evaluation): ON")
+    logger.info("   - SMC Agent (FVG + Order Blocks): ON")
+    logger.info("   - Sector Rotation (money-flow heatmap): ON")
     logger.info("   - Meta Agent (weight adjustment): ON")
     logger.info("   - Decision Fusion (weighted voting): ON")
     logger.info(f"   - Sentiment Agent (Redis narrative brain): {'ON' if SENTIMENT_ENABLED else 'OFF'}")

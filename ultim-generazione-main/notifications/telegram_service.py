@@ -172,6 +172,16 @@ def build_signal_message(
         strat = strategy_result.metadata.get("strategy", "")
         lines.append(f"🎲 Strategy: `{strat}`")
 
+    smc_result = agent_results.get("smc")
+    if smc_result and smc_result.metadata:
+        smc_meta = smc_result.metadata
+        setup = smc_meta.get("setup", "none")
+        limit_entry = smc_meta.get("limit_entry")
+        if isinstance(limit_entry, (int, float)) and limit_entry > 0:
+            lines.append(f"🏦 SMC: `{setup}` | mitigation entry `{float(limit_entry):.4f}`")
+        else:
+            lines.append(f"🏦 SMC: `{setup}`")
+
     lines.append(f"\n{time_quality} UTC {hour:02d}:xx | ID: `{fusion.decision_id}`")
     return "\n".join(lines)
 

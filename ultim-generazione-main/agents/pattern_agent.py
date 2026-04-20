@@ -17,7 +17,7 @@ from typing import Optional, Dict, Tuple, Any
 from agents.base_agent import BaseAgent, AgentResult
 from indicators.technical import (
     rsi, atr, bollinger_bands, keltner_channels, adx,
-    squeeze_intensity, volume_ratio,
+    squeeze_intensity, volume_ratio, atr_volatility_ratio, adaptive_period,
 )
 from config.settings import (
     HG_SQUEEZE_MIN_BARS, HG_RS_SLOPE_MIN, HG_LOOKBACK_RS,
@@ -232,8 +232,12 @@ class PatternAgent(BaseAgent):
         score = 0.0
         details = []
 
-        rsi_val = rsi(df["close"], 14).iloc[-1]
-        adx_val, di_p, di_m = adx(df, 14)
+        vol_ratio = atr_volatility_ratio(df)
+        rsi_period = adaptive_period(14, vol_ratio, min_period=7, max_period=21)
+        adx_period = adaptive_period(14, vol_ratio, min_period=10, max_period=28)
+
+        rsi_val = rsi(df["close"], rsi_period).iloc[-1]
+        adx_val, di_p, di_m = adx(df, adx_period)
         last_adx = adx_val.iloc[-1]
         last_di_p = di_p.iloc[-1]
         last_di_m = di_m.iloc[-1]
@@ -282,7 +286,7 @@ class PatternAgent(BaseAgent):
                 details.append(f"RS_leader({rs_slope:.4f})")
 
         # RSI Divergence
-        div_type, div_age = self.detect_rsi_divergence(df)
+        div_type, div_age = self.detect_rsi_divergence(df, rsi_period=rsi_period)
         max_age = DIVERGENCE_MAX_AGE_BY_TF.get(interval, 3)
         if div_type and div_age is not None and div_age <= max_age:
             score += 0.20
@@ -316,6 +320,8 @@ class PatternAgent(BaseAgent):
         elif bo == "breakout_short":
             direction = "short"
 
+        details.append(f"dyn_rsi={rsi_period}")
+        details.append(f"dyn_adx={adx_period}")
         return float(np.clip(score, 0.0, 1.0)), direction, details
 
     # ----------------------------------------------------------------
@@ -329,8 +335,11 @@ class PatternAgent(BaseAgent):
         score, direction, details = self._score_patterns(symbol, interval, df, df_btc)
         threshold = self._get_threshold(interval)
 
-        rsi_val = rsi(df["close"], 14).iloc[-1]
-        adx_val, _, _ = adx(df, 14)
+        vol_ratio = atr_volatility_ratio(df)
+        rsi_period = adaptive_period(14, vol_ratio, min_period=7, max_period=21)
+        adx_period = adaptive_period(14, vol_ratio, min_period=10, max_period=28)
+        rsi_val = rsi(df["close"], rsi_period).iloc[-1]
+        adx_val, _, _ = adx(df, adx_period)
         last_adx = float(adx_val.iloc[-1])
 
         return AgentResult(
@@ -345,5 +354,8 @@ class PatternAgent(BaseAgent):
                 "threshold": threshold,
                 "rsi": float(rsi_val),
                 "adx": last_adx,
+                "dynamic_rsi_period": int(rsi_period),
+                "dynamic_adx_period": int(adx_period),
+                "volatility_ratio": float(vol_ratio),
             },
         )
