@@ -345,6 +345,8 @@ class EventProcessor:
             if sector_result is not None:
                 sector_adj = float(sector_result.metadata.get("confluence_adjustment", 0.0))
                 if sector_adj != 0.0:
+                    # Intentional in-place score tuning before fusion:
+                    # sector flow is treated as an additive confluence component.
                     confluence_result.score = max(0.0, min(1.0, float(confluence_result.score) + sector_adj))
                     confluence_result.details.append(f"sector_adj={sector_adj:+.3f}")
                     confluence_result.metadata = dict(confluence_result.metadata or {})
