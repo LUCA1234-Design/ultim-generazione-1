@@ -14,10 +14,12 @@ from agents.confluence_agent import ConfluenceAgent
 from agents.risk_agent import RiskAgent
 from agents.strategy_agent import StrategyAgent
 from agents.meta_agent import MetaAgent
+from agents.market_gravity_agent import MarketGravityAgent
 from engine.decision_fusion import DecisionFusion, FusionResult, DECISION_HOLD, _SNIPER_MIN_AGREEING_TIMEFRAMES
 from engine.execution import ExecutionEngine
 from engine.volume_trigger import VolumeTrigger
 from data import data_store
+from data.binance_client import fetch_futures_depth
 from config.settings import (
     ORARI_VIETATI_UTC,
     ORARI_MIGLIORI_UTC,
@@ -37,6 +39,13 @@ from config.settings import (
 
 logger = logging.getLogger("EventProcessor")
 _MIN_CORRELATION_POINTS = 20
+# Smart limit-entry profile (Phase 11):
+# - depth levels/timeout keep book lookup fast for low-latency signal routing.
+# - 0.05% offsets simulate maker-style micro-retracement entries.
+_SMART_LIMIT_DEPTH_LEVELS = 5
+_SMART_LIMIT_DEPTH_TIMEOUT_SECONDS = 0.35
+_SMART_LIMIT_LONG_OFFSET_MULT = 0.9995
+_SMART_LIMIT_SHORT_OFFSET_MULT = 1.0005
 
 
 class EventProcessor:
@@ -54,6 +63,7 @@ class EventProcessor:
         execution: ExecutionEngine,
         on_signal: Optional[Callable] = None,
         volume_trigger: Optional[VolumeTrigger] = None,
+        market_gravity_agent: Optional[MarketGravityAgent] = None,
     ):
         self.pattern = pattern_agent
         self.regime = regime_agent
@@ -65,6 +75,7 @@ class EventProcessor:
         self.execution = execution
         self.on_signal = on_signal  # callback for notifications
         self.volume_trigger = volume_trigger or VolumeTrigger()
+        self.market_gravity = market_gravity_agent or MarketGravityAgent()
 
         self._last_signal_time: Dict[str, float] = {}
         self._processed_count = 0
@@ -93,6 +104,7 @@ class EventProcessor:
             "weak_micro_momentum": 0,
             "negative_news_sentiment": 0,
             "positive_news_sentiment": 0,
+            "market_gravity_veto": 0,
         }
 
     # ------------------------------------------------------------------
@@ -115,6 +127,50 @@ class EventProcessor:
     
     def _skip(self, reason: str) -> None:
         self._skip_reasons[reason] = self._skip_reasons.get(reason, 0) + 1
+
+    def _smart_limit_entry_price(self, symbol: str, direction: str, fallback_price: float) -> float:
+        """Return a maker-style limit entry near top of book (Phase 11).
+
+        Uses shallow depth (`limit=5`, timeout `0.35s`). For longs, applies a
+        multiplier of `0.9995` (0.05% below best bid); for shorts, multiplier
+        `1.0005` (0.05% above best ask).
+        If depth is unavailable/invalid, falls back to `fallback_price`.
+        """
+        try:
+            fallback = float(fallback_price)
+        except (TypeError, ValueError):
+            fallback = 0.0
+
+        depth = fetch_futures_depth(
+            symbol,
+            limit=_SMART_LIMIT_DEPTH_LEVELS,
+            timeout=_SMART_LIMIT_DEPTH_TIMEOUT_SECONDS,
+        )
+        bids = depth.get("bids", []) if isinstance(depth, dict) else []
+        asks = depth.get("asks", []) if isinstance(depth, dict) else []
+
+        try:
+            best_bid = float(bids[0][0]) if bids else fallback
+        except (TypeError, ValueError, IndexError):
+            best_bid = fallback
+        try:
+            best_ask = float(asks[0][0]) if asks else fallback
+        except (TypeError, ValueError, IndexError):
+            best_ask = fallback
+
+        if not isinstance(best_bid, (int, float)) or best_bid <= 0:
+            best_bid = fallback
+        if not isinstance(best_ask, (int, float)) or best_ask <= 0:
+            best_ask = fallback
+
+        normalized_direction = str(direction).lower() if direction is not None else ""
+        if normalized_direction not in {"long", "short"}:
+            return float(fallback)
+        if normalized_direction == "long":
+            entry = best_bid * _SMART_LIMIT_LONG_OFFSET_MULT
+        else:
+            entry = best_ask * _SMART_LIMIT_SHORT_OFFSET_MULT
+        return float(entry) if entry > 0 else float(fallback)
 
     # ------------------------------------------------------------------
     # Correlation guard
@@ -337,6 +393,33 @@ class EventProcessor:
                 f"agents={len(agent_results)} fusion={fusion_result.final_score:.3f}"
             )
             return None
+        gravity_result = self.market_gravity.safe_analyse(
+            symbol,
+            interval,
+            df,
+            direction=fusion_result.decision,
+        )
+        if gravity_result is not None:
+            agent_results["market_gravity"] = gravity_result
+            gravity_meta = gravity_result.metadata or {}
+            if gravity_meta.get("veto"):
+                self._skip("market_gravity_veto")
+                logger.info(
+                    f"⛔ {symbol}/{interval} SKIP: market_gravity_veto | "
+                    f"decision={fusion_result.decision} btc_strength={gravity_meta.get('btc_strength', 0):.2f} "
+                    f"eth_strength={gravity_meta.get('eth_strength', 0):.2f}"
+                )
+                return None
+
+            score_adjustment = float(gravity_meta.get("score_adjustment", 0.0))
+            if score_adjustment != 0.0:
+                fusion_result.final_score = max(0.0, min(1.0, fusion_result.final_score + score_adjustment))
+                fusion_result.reasoning.append(
+                    f"MARKET_GRAVITY: adj={score_adjustment:+.3f} "
+                    f"(btc={gravity_meta.get('btc_strength', 0):.2f}, "
+                    f"eth={gravity_meta.get('eth_strength', 0):.2f})"
+                )
+
         if fusion_result.final_score < MIN_FUSION_SCORE:
             self._skip("low_fusion_score")
             logger.info(
@@ -366,7 +449,8 @@ class EventProcessor:
         tp1 = risk_meta.get("tp1", df["close"].iloc[-1] * 1.02)
         tp2 = risk_meta.get("tp2", df["close"].iloc[-1] * 1.04)
         size = risk_meta.get("size", 0.001)
-        entry = risk_meta.get("entry", float(df["close"].iloc[-1]))
+        base_entry = risk_meta.get("entry", float(df["close"].iloc[-1]))
+        entry = self._smart_limit_entry_price(symbol, fusion_result.decision, base_entry)
         initial_atr = risk_meta.get("atr")
         strategy_name = strategy_result.metadata.get("strategy", "") if strategy_result else ""
 

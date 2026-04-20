@@ -52,7 +52,7 @@ def test_signal_only_worker_sends_manual_signal_format(monkeypatch):
     msg = send_mock.call_args[0][0]
     assert "🚨 SEGNALE OPERATIVO (MANUALE) 🚨" in msg
     assert "🪙 Moneta: BTCUSDT (LONG)" in msg
-    assert "🎯 Entry: 100.0000" in msg
+    assert "🎯 Limit Entry: 100.0000" in msg
     assert "🛑 Stop Loss: 95.0000" in msg
     assert "💰 Take Profit 1: 110.0000" in msg
     save_decision_mock.assert_called_once()
