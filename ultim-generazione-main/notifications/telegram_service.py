@@ -9,6 +9,7 @@ from typing import Any, Dict, List, Optional
 import requests
 
 from config.settings import TELEGRAM_TOKEN, TELEGRAM_CHAT_ID, TELEGRAM_RATE_LIMIT
+from config.settings import LEVERAGE
 from agents.base_agent import AgentResult
 from engine.decision_fusion import FusionResult
 from engine.execution import Position
@@ -100,6 +101,7 @@ def build_signal_message(
         f"💰 Entry: `{position.entry_price:.4f}`",
         f"🛑 SL: `{position.sl:.4f}`",
         f"🎯 TP1: `{position.tp1:.4f}` | TP2: `{position.tp2:.4f}`",
+        f"📦 Kelly Size: `{position.size:.4f}` | Leverage: `{LEVERAGE}x`",
         "",
         f"📊 Fusion Score: `{score:.3f}`",
         f"{'📄 PAPER TRADE' if position.paper else '⚡ LIVE TRADE'}",
@@ -182,6 +184,17 @@ def build_signal_message(
         else:
             lines.append(f"🏦 SMC: `{setup}`")
 
+    onchain_result = agent_results.get("onchain")
+    if onchain_result and onchain_result.metadata is not None:
+        alert_count = int(onchain_result.metadata.get("alert_count", 0))
+        if alert_count > 0 and onchain_result.details:
+            lines.append(
+                f"🐋 On-Chain: {onchain_result.details[0]} "
+                f"({alert_count} alert{'s' if alert_count != 1 else ''})"
+            )
+        else:
+            lines.append("🐋 On-Chain: nessun trasferimento whale critico")
+
     lines.append(f"\n{time_quality} UTC {hour:02d}:xx | ID: `{fusion.decision_id}`")
     return "\n".join(lines)
 
@@ -194,7 +207,9 @@ def build_manual_signal_message(position: Position) -> str:
         f"🪙 Moneta: {position.symbol} ({direction})\n"
         f"🎯 Limit Entry: {position.entry_price:.4f}\n"
         f"🛑 Stop Loss: {position.sl:.4f}\n"
-        f"💰 Take Profit 1: {position.tp1:.4f}"
+        f"💰 Take Profit 1: {position.tp1:.4f}\n"
+        f"📦 Kelly Size: {position.size:.4f}\n"
+        f"⚖️ Leva consigliata: {LEVERAGE}x"
     )
 
 

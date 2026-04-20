@@ -192,6 +192,8 @@ FUSION_AGENT_WEIGHTS = {
     "pattern": 0.30,       # unchanged — pattern detection is the core signal source
     "confluence": 0.30,    # raised from 0.25 — MTF confluence is the key filter
     "smc": 0.12,           # Smart Money Concepts (Phase 12 institutional upgrade)
+    "onchain": 0.12,       # Phase 14: whale flow to exchanges
+    "neural_predict": 0.15,  # Phase 14: sequence-probability engine
     "risk": 0.15,          # unchanged
     "strategy": 0.05,      # reduced from 0.15 — mutated strategies are noisy
     "meta": 0.05,          # unchanged
@@ -213,6 +215,34 @@ PAIRS_TRADING_CANDIDATE_PAIRS = [
     ("PEPEUSDT", "FLOKIUSDT"),
     ("FETUSDT", "TAOUSDT"),
 ]
+
+# ============================================================
+# PHASE 14 — ON-CHAIN WHALE TRACKER
+# ============================================================
+
+ONCHAIN_TRACKING_ENABLED = os.getenv("ONCHAIN_TRACKING_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
+ONCHAIN_WHALE_ALERT_API_KEY = os.getenv("ONCHAIN_WHALE_ALERT_API_KEY", "")
+ONCHAIN_ETHERSCAN_API_KEY = os.getenv("ONCHAIN_ETHERSCAN_API_KEY", "")
+ONCHAIN_ALERT_MIN_USD = float(os.getenv("ONCHAIN_ALERT_MIN_USD", "1000000"))
+ONCHAIN_CACHE_TTL_SECONDS = int(os.getenv("ONCHAIN_CACHE_TTL_SECONDS", "120"))
+ONCHAIN_EXCHANGE_LABELS = ["binance", "coinbase", "kraken", "okx", "bybit", "exchange"]
+ONCHAIN_STABLECOINS = ["USDT", "USDC", "BUSD", "DAI", "TUSD", "FDUSD"]
+
+# ============================================================
+# PHASE 14 — PREDICTIVE NEURAL ENGINE (LIGHTWEIGHT)
+# ============================================================
+
+NEURAL_PREDICT_ENABLED = os.getenv("NEURAL_PREDICT_ENABLED", "true").lower() in {"1", "true", "yes", "on"}
+NEURAL_PREDICT_LOOKBACK = int(os.getenv("NEURAL_PREDICT_LOOKBACK", "120"))
+NEURAL_PREDICT_HORIZON = int(os.getenv("NEURAL_PREDICT_HORIZON", "3"))
+
+# ============================================================
+# PHASE 14 — DYNAMIC KELLY POSITION SIZING
+# ============================================================
+
+KELLY_MIN_FRACTION = float(os.getenv("KELLY_MIN_FRACTION", "0.005"))
+KELLY_MAX_FRACTION = float(os.getenv("KELLY_MAX_FRACTION", "0.10"))
+KELLY_CONFIDENCE_WEIGHT = float(os.getenv("KELLY_CONFIDENCE_WEIGHT", "0.45"))
 
 # ============================================================
 # SENTIMENT AGENT (NEWS/NARRATIVE BRAIN)

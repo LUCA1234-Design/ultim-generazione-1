@@ -13,6 +13,8 @@ from agents.market_gravity_agent import MarketGravityAgent
 from agents.smc_agent import SMCAgent
 from agents.sector_rotation_agent import SectorRotationAgent
 from agents.pairs_trading_agent import PairsTradingAgent
+from agents.onchain_agent import OnChainAgent
+from agents.neural_predict_agent import NeuralPredictAgent
 
 __all__ = [
     "BaseAgent",
@@ -30,4 +32,6 @@ __all__ = [
     "SMCAgent",
     "SectorRotationAgent",
     "PairsTradingAgent",
+    "OnChainAgent",
+    "NeuralPredictAgent",
 ]

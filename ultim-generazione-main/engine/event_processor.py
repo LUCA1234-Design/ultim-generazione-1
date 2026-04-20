@@ -6,6 +6,7 @@ import logging
 import time
 import datetime
 from typing import Dict, List, Optional, Callable, Any
+import numpy as np
 
 from agents.base_agent import AgentResult
 from agents.pattern_agent import PatternAgent
@@ -18,6 +19,8 @@ from agents.market_gravity_agent import MarketGravityAgent
 from agents.smc_agent import SMCAgent
 from agents.sector_rotation_agent import SectorRotationAgent
 from agents.pairs_trading_agent import PairsTradingAgent
+from agents.onchain_agent import OnChainAgent
+from agents.neural_predict_agent import NeuralPredictAgent
 from engine.decision_fusion import DecisionFusion, FusionResult, DECISION_HOLD, _SNIPER_MIN_AGREEING_TIMEFRAMES
 from engine.execution import ExecutionEngine
 from engine.volume_trigger import VolumeTrigger
@@ -71,6 +74,8 @@ class EventProcessor:
         smc_agent: Optional[SMCAgent] = None,
         sector_rotation_agent: Optional[SectorRotationAgent] = None,
         pairs_trading_agent: Optional[PairsTradingAgent] = None,
+        onchain_agent: Optional[OnChainAgent] = None,
+        neural_predict_agent: Optional[NeuralPredictAgent] = None,
         on_pairs_signal: Optional[Callable] = None,
     ):
         self.pattern = pattern_agent
@@ -87,6 +92,8 @@ class EventProcessor:
         self.smc = smc_agent or SMCAgent()
         self.sector_rotation = sector_rotation_agent or SectorRotationAgent()
         self.pairs_trading = pairs_trading_agent or PairsTradingAgent()
+        self.onchain = onchain_agent or OnChainAgent()
+        self.neural_predict = neural_predict_agent or NeuralPredictAgent()
         self.on_pairs_signal = on_pairs_signal
 
         self._last_signal_time: Dict[str, float] = {}
@@ -378,7 +385,32 @@ class EventProcessor:
                 return None
 
         # Risk agent
-        risk_result = self.risk.safe_analyse(symbol, interval, df, direction_hint, regime=current_regime)
+        onchain_result = self.onchain.safe_analyse(symbol, interval, df)
+        if onchain_result is not None:
+            agent_results["onchain"] = onchain_result
+
+        neural_result = self.neural_predict.safe_analyse(symbol, interval, df)
+        if neural_result is not None:
+            agent_results["neural_predict"] = neural_result
+
+        confidence_inputs: List[float] = []
+        for name in ("pattern", "confluence", "smc", "onchain", "neural_predict"):
+            result = agent_results.get(name)
+            if result is not None:
+                confidence_inputs.append(float(np.clip(result.score, 0.0, 1.0)))
+        multi_agent_confidence = (
+            float(np.clip(np.mean(confidence_inputs), 0.01, 0.99))
+            if confidence_inputs else None
+        )
+
+        risk_result = self.risk.safe_analyse(
+            symbol,
+            interval,
+            df,
+            direction_hint,
+            confidence_score=multi_agent_confidence,
+            regime=current_regime,
+        )
         if risk_result is not None:
             agent_results["risk"] = risk_result
 

@@ -68,6 +68,11 @@ class TestRiskAgent:
         f = RiskAgent.kelly_fraction(win_rate=0.6, rr=0)
         assert f == 0.01  # falls back to minimum
 
+    def test_kelly_fraction_increases_with_high_trade_confidence(self):
+        low = RiskAgent.kelly_fraction(win_rate=0.55, rr=2.0, confidence_score=0.30)
+        high = RiskAgent.kelly_fraction(win_rate=0.55, rr=2.0, confidence_score=0.90)
+        assert high >= low
+
     # ------------------------------------------------------------------
     # Win rate management
     # ------------------------------------------------------------------

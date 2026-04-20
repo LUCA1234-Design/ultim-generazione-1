@@ -33,6 +33,8 @@ ultim-generazione/
 │   ├── strategy_agent.py           # Generates & evaluates trading strategies
 │   └── meta_agent.py               # Monitors & adjusts other agent weights
 │   └── pairs_trading_agent.py      # Phase 13 statistical arbitrage (delta-neutral pairs)
+│   └── onchain_agent.py            # Phase 14 whale-flow tracker (exchange transfer alerts)
+│   └── neural_predict_agent.py     # Phase 14 predictive sequence engine (next-N candle probs)
 ├── engine/
 │   ├── __init__.py
 │   ├── decision_fusion.py          # Weighted vote fusion (replaces IF/RETURN cascade)
