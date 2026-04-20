@@ -198,6 +198,28 @@ def build_manual_signal_message(position: Position) -> str:
     )
 
 
+def build_pairs_signal_message(pair_signal: Any) -> str:
+    """Build delta-neutral pairs trading alert message."""
+    metadata = getattr(pair_signal, "metadata", {}) or {}
+    long_symbol = metadata.get("long_symbol", "N/A")
+    short_symbol = metadata.get("short_symbol", "N/A")
+    pair = metadata.get("pair", [])
+    if isinstance(pair, (list, tuple)) and len(pair) == 2:
+        pair_label = f"{pair[0]}/{pair[1]}"
+    else:
+        pair_label = str(getattr(pair_signal, "symbol", "N/A"))
+    interval = getattr(pair_signal, "interval", "")
+    zscore = float(metadata.get("zscore", 0.0))
+    corr = float(metadata.get("correlation", 0.0))
+    return (
+        "🧮 *PHASE 13 — DELTA-NEUTRAL PAIRS SIGNAL*\n"
+        f"Pair: `{pair_label}` [{interval}]\n"
+        f"Z-Score: `{zscore:+.2f}` | Corr: `{corr:.2f}`\n"
+        f"🟢 LONG `{long_symbol}`\n"
+        f"🔴 SHORT `{short_symbol}`"
+    )
+
+
 def build_early_exit_alert_message(position: Position, reason: str) -> str:
     """Build high-priority early-exit alert message for manually managed trades."""
     close_price_text = (

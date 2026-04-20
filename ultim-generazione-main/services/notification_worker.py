@@ -15,6 +15,7 @@ from data import data_store
 from memory.experience_db import save_decision
 from notifications.chart_generator import generate_signal_chart
 from notifications.telegram_service import (
+    build_pairs_signal_message,
     build_manual_signal_message,
     build_signal_message,
     send_message,
@@ -47,7 +48,30 @@ def enqueue_signal_notification(
         return False
 
 
+def enqueue_pairs_signal_notification(pair_signal) -> bool:
+    """Queue a delta-neutral pairs signal notification."""
+    try:
+        _signal_queue.put_nowait(
+            {
+                "type": "pairs_signal",
+                "pair_signal": pair_signal,
+            }
+        )
+        return True
+    except queue.Full:
+        logger.error("Notification queue full: dropping pairs signal job")
+        return False
+
+
 def _process_signal_job(job: Dict[str, Any]) -> None:
+    if job.get("type") == "pairs_signal":
+        try:
+            pair_signal = job["pair_signal"]
+            send_message(build_pairs_signal_message(pair_signal))
+        except Exception as e:
+            logger.error(f"Pairs signal notification error: {e}")
+        return
+
     fusion_result = job["fusion_result"]
     agent_results = job["agent_results"]
     position = job["position"]

@@ -32,6 +32,7 @@ ultim-generazione/
 │   ├── risk_agent.py               # Kelly with real win rates, adaptive sizing
 │   ├── strategy_agent.py           # Generates & evaluates trading strategies
 │   └── meta_agent.py               # Monitors & adjusts other agent weights
+│   └── pairs_trading_agent.py      # Phase 13 statistical arbitrage (delta-neutral pairs)
 ├── engine/
 │   ├── __init__.py
 │   ├── decision_fusion.py          # Weighted vote fusion (replaces IF/RETURN cascade)
@@ -44,7 +45,8 @@ ultim-generazione/
 ├── notifications/
 │   ├── __init__.py
 │   └── telegram_service.py        # Enhanced Telegram with regime probs & agent reasoning
-└── main.py                        # Orchestrator
+├── monte_carlo_trainer.py          # Phase 13 synthetic-path training for MetaAgent
+└── main.py                         # Orchestrator
 ```
 
 ## Quick Start

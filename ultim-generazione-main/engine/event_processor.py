@@ -17,6 +17,7 @@ from agents.meta_agent import MetaAgent
 from agents.market_gravity_agent import MarketGravityAgent
 from agents.smc_agent import SMCAgent
 from agents.sector_rotation_agent import SectorRotationAgent
+from agents.pairs_trading_agent import PairsTradingAgent
 from engine.decision_fusion import DecisionFusion, FusionResult, DECISION_HOLD, _SNIPER_MIN_AGREEING_TIMEFRAMES
 from engine.execution import ExecutionEngine
 from engine.volume_trigger import VolumeTrigger
@@ -69,6 +70,8 @@ class EventProcessor:
         market_gravity_agent: Optional[MarketGravityAgent] = None,
         smc_agent: Optional[SMCAgent] = None,
         sector_rotation_agent: Optional[SectorRotationAgent] = None,
+        pairs_trading_agent: Optional[PairsTradingAgent] = None,
+        on_pairs_signal: Optional[Callable] = None,
     ):
         self.pattern = pattern_agent
         self.regime = regime_agent
@@ -83,11 +86,14 @@ class EventProcessor:
         self.market_gravity = market_gravity_agent or MarketGravityAgent()
         self.smc = smc_agent or SMCAgent()
         self.sector_rotation = sector_rotation_agent or SectorRotationAgent()
+        self.pairs_trading = pairs_trading_agent or PairsTradingAgent()
+        self.on_pairs_signal = on_pairs_signal
 
         self._last_signal_time: Dict[str, float] = {}
         self._processed_count = 0
         self._signal_count = 0
         self._last_signal_info: str = ""
+        self._pairs_signal_count = 0
         # Per-decision context stored on close for feedback loops
         self._decision_contexts: Dict[str, Dict[str, Any]] = {}
         self._skip_reasons: Dict[str, int] = {
@@ -265,6 +271,14 @@ class EventProcessor:
 
         # Update realtime data
         data_store.update_realtime(symbol, interval, kline)
+        try:
+            pairs_signal = self.pairs_trading.safe_analyse(symbol, interval, None)
+            if pairs_signal is not None:
+                self._pairs_signal_count += 1
+                if self.on_pairs_signal:
+                    self.on_pairs_signal(pairs_signal)
+        except Exception as _pairs_err:
+            logger.debug(f"pairs_trading analysis error: {_pairs_err}")
 
         # Guard: forbidden hours
         if self._is_forbidden_hour():
@@ -637,6 +651,7 @@ class EventProcessor:
                "processed": self._processed_count,
                "signals": self._signal_count,
                "skip_reasons": dict(self._skip_reasons),
+               "pairs_signals": self._pairs_signal_count,
                "execution": self.execution.get_stats(),
                "last_signal": self._last_signal_info,
                "fusion_threshold": self.fusion._threshold,
