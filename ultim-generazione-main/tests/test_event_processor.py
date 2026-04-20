@@ -532,6 +532,7 @@ def test_on_candle_close_uses_smc_limit_entry_when_available(monkeypatch):
 
     assert result is not None
     execution.open_position.assert_called_once()
+    # SMC mitigation zone entry must override smart-limit (book bid 100 -> 99.95).
     assert execution.open_position.call_args.kwargs["entry_price"] == pytest.approx(98.75)
 
 
@@ -607,4 +608,5 @@ def test_on_candle_close_falls_back_to_smart_limit_when_smc_score_is_too_low(mon
 
     assert result is not None
     execution.open_position.assert_called_once()
+    # Low-score SMC setup should fallback to smart-limit entry (best bid 100 * 0.9995 = 99.95).
     assert execution.open_position.call_args.kwargs["entry_price"] == pytest.approx(99.95)

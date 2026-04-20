@@ -36,7 +36,7 @@ class SMCAgent(BaseAgent):
                 "zone_low": zone_low,
                 "zone_high": zone_high,
                 "entry": (zone_low + zone_high) / 2.0,
-                "strength": (zone_high - zone_low) / max(zone_high, 1e-9),
+                "strength": (zone_high - zone_low) / max(abs(zone_high), 1e-9),
             }
         if low_2 > high_0:
             zone_low, zone_high = high_0, low_2
@@ -46,7 +46,7 @@ class SMCAgent(BaseAgent):
                 "zone_low": zone_low,
                 "zone_high": zone_high,
                 "entry": (zone_low + zone_high) / 2.0,
-                "strength": (zone_high - zone_low) / max(zone_high, 1e-9),
+                "strength": (zone_high - zone_low) / max(abs(zone_high), 1e-9),
             }
         return None
 
