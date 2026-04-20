@@ -1,4 +1,5 @@
 import pandas as pd
+import pytest
 from types import SimpleNamespace
 from unittest.mock import MagicMock
 
@@ -92,6 +93,10 @@ def test_on_candle_close_blocks_trade_when_highly_correlated_same_direction(monk
     monkeypatch.setattr(processor, "_is_forbidden_hour", lambda: False)
     monkeypatch.setattr(processor, "_is_signal_cooled", lambda _symbol, _interval: True)
     monkeypatch.setattr(processor, "_is_optimal_hour", lambda: True)
+    monkeypatch.setattr(
+        "engine.event_processor.fetch_futures_depth",
+        lambda *_args, **_kwargs: {"bids": [["100.0", "1"]], "asks": [["100.2", "1"]]},
+    )
 
     result = processor.on_candle_close("SOLUSDT", "1h", {"close": 120.0})
 
@@ -266,6 +271,9 @@ def test_on_candle_close_skips_short_when_sentiment_is_highly_positive(monkeypat
     processor.fusion.memory_manager = MagicMock()
     processor.fusion.memory_manager.get_sentiment_score.return_value = 0.9
     processor.volume_trigger.confirm = MagicMock(return_value=(True, {"imbalance": -0.3}))
+    processor.market_gravity.safe_analyse = MagicMock(
+        return_value=_agent_result("market_gravity", direction="short", metadata={"score_adjustment": 0.0, "veto": False})
+    )
 
     base_close = pd.Series(range(1, 121), dtype=float)
     frames = {
@@ -335,3 +343,123 @@ def test_correlation_check_ignores_when_new_symbol_data_is_too_short(monkeypatch
 
     blocked = processor._correlation_check("SOLUSDT", "1h", "long")
     assert blocked is None
+
+
+def test_on_candle_close_vetoes_short_when_market_gravity_detects_strong_btc_uptrend(monkeypatch):
+    execution = MagicMock()
+    execution.get_open_positions.return_value = []
+    execution.is_risk_blocked.return_value = (False, "")
+    execution.open_position.return_value = SimpleNamespace(position_id="p1")
+
+    fusion = MagicMock()
+    fusion.fuse.return_value = FusionResult(
+        decision_id="d6",
+        symbol="SOLUSDT",
+        interval="1h",
+        decision="short",
+        final_score=0.9,
+        direction="short",
+        agent_scores={},
+        agent_results={},
+        threshold=0.5,
+        reasoning=[],
+    )
+    fusion._threshold = 0.5
+
+    processor = _make_processor(execution, fusion)
+    processor.volume_trigger.confirm = MagicMock(return_value=(True, {"imbalance": -0.2}))
+
+    uptrend = pd.Series(range(100, 260), dtype=float)
+    frames = {
+        ("SOLUSDT", "1h"): pd.DataFrame({"close": uptrend}),
+        ("BTCUSDT", "1h"): pd.DataFrame({"close": uptrend}),
+        ("ETHUSDT", "1h"): pd.DataFrame({"close": uptrend * 1.2}),
+    }
+
+    monkeypatch.setattr("engine.event_processor.data_store.update_realtime", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        "engine.event_processor.data_store.get_df",
+        lambda symbol, interval: frames.get((symbol, interval)),
+    )
+    monkeypatch.setattr(processor, "_is_forbidden_hour", lambda: False)
+    monkeypatch.setattr(processor, "_is_signal_cooled", lambda _symbol, _interval: True)
+    monkeypatch.setattr(processor, "_is_optimal_hour", lambda: True)
+
+    result = processor.on_candle_close("SOLUSDT", "1h", {"close": 259.0})
+
+    assert result is None
+    execution.open_position.assert_not_called()
+    assert processor.get_stats()["skip_reasons"]["market_gravity_veto"] == 1
+
+
+def test_smart_limit_entry_price_uses_bid_for_long_and_ask_for_short(monkeypatch):
+    execution = MagicMock()
+    fusion = MagicMock()
+    fusion._threshold = 0.5
+    processor = _make_processor(execution, fusion)
+
+    order_books = [
+        {"bids": [["100.0", "10"]], "asks": [["100.2", "10"]]},
+        {"bids": [["99.8", "10"]], "asks": [["101.0", "10"]]},
+    ]
+    monkeypatch.setattr(
+        "engine.event_processor.fetch_futures_depth",
+        lambda *_args, **_kwargs: order_books.pop(0),
+    )
+
+    long_entry = processor._smart_limit_entry_price("SOLUSDT", "long", 100.0)
+    short_entry = processor._smart_limit_entry_price("SOLUSDT", "short", 100.0)
+
+    assert long_entry == pytest.approx(100.0 * 0.9995)
+    assert short_entry == pytest.approx(101.0 * 1.0005)
+
+
+def test_on_candle_close_market_gravity_boosts_long_score(monkeypatch):
+    execution = MagicMock()
+    execution.get_open_positions.return_value = []
+    execution.is_risk_blocked.return_value = (False, "")
+    execution.open_position.return_value = SimpleNamespace(position_id="p1")
+
+    fusion = MagicMock()
+    fusion.fuse.return_value = FusionResult(
+        decision_id="d9",
+        symbol="SOLUSDT",
+        interval="1h",
+        decision="long",
+        final_score=0.24,
+        direction="long",
+        agent_scores={},
+        agent_results={},
+        threshold=0.5,
+        reasoning=[],
+    )
+    fusion._threshold = 0.5
+
+    processor = _make_processor(execution, fusion)
+    processor.volume_trigger.confirm = MagicMock(return_value=(True, {"imbalance": 0.2}))
+
+    uptrend = pd.Series(range(100, 260), dtype=float)
+    frames = {
+        ("SOLUSDT", "1h"): pd.DataFrame({"close": uptrend}),
+        ("BTCUSDT", "1h"): pd.DataFrame({"close": uptrend}),
+        ("ETHUSDT", "1h"): pd.DataFrame({"close": uptrend * 1.2}),
+    }
+
+    monkeypatch.setattr("engine.event_processor.data_store.update_realtime", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        "engine.event_processor.data_store.get_df",
+        lambda symbol, interval: frames.get((symbol, interval)),
+    )
+    monkeypatch.setattr(processor, "_is_forbidden_hour", lambda: False)
+    monkeypatch.setattr(processor, "_is_signal_cooled", lambda _symbol, _interval: True)
+    monkeypatch.setattr(processor, "_is_optimal_hour", lambda: True)
+    monkeypatch.setattr(
+        "engine.event_processor.fetch_futures_depth",
+        lambda *_args, **_kwargs: {"bids": [["100.0", "10"]], "asks": [["100.2", "10"]]},
+    )
+
+    result = processor.on_candle_close("SOLUSDT", "1h", {"close": 259.0})
+
+    assert result is not None
+    assert result.final_score > 0.24
+    execution.open_position.assert_called_once()

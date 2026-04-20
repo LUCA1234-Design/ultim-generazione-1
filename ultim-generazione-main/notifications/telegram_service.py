@@ -182,7 +182,7 @@ def build_manual_signal_message(position: Position) -> str:
     return (
         "🚨 SEGNALE OPERATIVO (MANUALE) 🚨\n"
         f"🪙 Moneta: {position.symbol} ({direction})\n"
-        f"🎯 Entry: {position.entry_price:.4f}\n"
+        f"🎯 Limit Entry: {position.entry_price:.4f}\n"
         f"🛑 Stop Loss: {position.sl:.4f}\n"
         f"💰 Take Profit 1: {position.tp1:.4f}"
     )

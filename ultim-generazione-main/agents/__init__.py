@@ -9,6 +9,7 @@ from agents.strategy_agent import StrategyAgent
 from agents.mtf_agent import MTFAgent
 from agents.liquidity_agent import LiquidityAgent
 from agents.sentiment_agent import SentimentAgent
+from agents.market_gravity_agent import MarketGravityAgent
 
 __all__ = [
     "BaseAgent",
@@ -22,4 +23,5 @@ __all__ = [
     "MTFAgent",
     "LiquidityAgent",
     "SentimentAgent",
+    "MarketGravityAgent",
 ]
