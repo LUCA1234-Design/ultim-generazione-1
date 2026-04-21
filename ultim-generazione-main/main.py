@@ -1,5 +1,5 @@
 """
-V17 Agentic AI Trading System — Main Orchestrator
+V18 Agentic AI Trading System — Main Orchestrator
 Transforms V16 "Cecchino Istituzionale" into a multi-agent adaptive system.
 """
 import gc
@@ -184,7 +184,7 @@ def preload_historical(symbols, label: str = "") -> None:
 # ---------------------------------------------------------------------------
 
 def build_system(dashboard_state: Optional[DashboardState] = None):
-    """Instantiate and wire all V17 components.
+    """Instantiate and wire all V18 components.
 
     Returns
     -------
@@ -198,7 +198,7 @@ def build_system(dashboard_state: Optional[DashboardState] = None):
     pattern          : PatternAgent
     decision_context : Dict[str, Dict[str, Any]] — runtime signal context cache
     """
-    logger.info("🔧 Building V17 agent system...")
+    logger.info("🔧 Building V18 agent system...")
 
     pattern = PatternAgent()
     regime = RegimeAgent()
@@ -312,7 +312,7 @@ def build_system(dashboard_state: Optional[DashboardState] = None):
         on_pairs_signal=on_pairs_signal,
     )
 
-    logger.info("✅ V17 agent system ready")
+    logger.info("✅ V18 agent system ready")
     return processor, meta, tracker, execution, risk, strategy, confluence, pattern, decision_context
 
 
@@ -591,7 +591,7 @@ def _heartbeat_loop(processor: EventProcessor, interval_sec: int) -> None:
             logger.error(f"Heartbeat error: {e}\n{traceback.format_exc()}")
             if consecutive_errors >= 3:
                 try:
-                    send_message("🔴 V17 HEARTBEAT — system alive but stats unavailable")
+                    send_message("🔴 V18 HEARTBEAT — system alive but stats unavailable")
                 except Exception:
                     pass
         time.sleep(interval_sec)
@@ -622,7 +622,7 @@ def _report_loop(processor: EventProcessor, tracker: PerformanceTracker,
             logger.error(f"_report_loop error: {e}\n{traceback.format_exc()}")
             if consecutive_errors >= 3:
                 try:
-                    send_message("🔴 V17 REPORT — system alive but report unavailable")
+                    send_message("🔴 V18 REPORT — system alive but report unavailable")
                 except Exception:
                     pass
         time.sleep(interval_sec)
@@ -717,7 +717,7 @@ def main():
     user_data_stream: Optional[UserDataStreamManager] = None
     dashboard_state = DashboardState()
     logger.info("=" * 60)
-    logger.info("🤖 V17 AGENTIC AI TRADING SYSTEM")
+    logger.info("🤖 V18 AGENTIC AI TRADING SYSTEM")
     logger.info("=" * 60)
     logger.info("🛡️ ACTIVE MODULES:")
     logger.info("   - Regime Agent (GaussianMixture): ON")
@@ -768,7 +768,7 @@ def main():
                 logger.info(f"📥 Preloading history for {len(hg_extra)} HG-only symbols...")
                 preload_historical(hg_extra, "HG")
 
-        # ---- Build V17 system ----
+        # ---- Build V18 system ----
         processor, meta, tracker, execution, risk_agent, strategy_agent, confluence_agent, pattern_agent, decision_context = build_system(
             dashboard_state=dashboard_state
         )
@@ -822,12 +822,12 @@ def main():
                 "positions_provider": lambda: _dashboard_positions_snapshot(processor),
                 "logs_provider": dashboard_state.get_logs,
                 "host": "127.0.0.1",
-                "port": 5000,
+                "port": 5018,
             },
             daemon=True,
             name="DashboardServer",
         ).start()
-        dashboard_state.add_log("Dashboard server thread started on http://127.0.0.1:5000")
+        dashboard_state.add_log("Dashboard server thread started on http://127.0.0.1:5018")
 
         # ---- Private User Data Stream (LIVE only) ----
         if not PAPER_TRADING:
@@ -920,7 +920,7 @@ def main():
         ))
 
         logger.info("=" * 60)
-        logger.info("🚀 V17 SYSTEM OPERATIONAL — Press Ctrl+C to stop")
+        logger.info("🚀 V18 SYSTEM OPERATIONAL — Press Ctrl+C to stop")
         logger.info("=" * 60)
 
         # ---- Signal handlers for graceful shutdown on SIGTERM/SIGINT ----
@@ -943,7 +943,7 @@ def main():
             except Exception as _se:
                 logger.error(f"Graceful shutdown save error: {_se}")
             try:
-                send_message("⏹️ V17 — shutdown signal received, state saved.")
+                send_message("⏹️ V18 — shutdown signal received, state saved.")
             except Exception:
                 pass
             sys.exit(0)
@@ -982,7 +982,7 @@ def main():
                         _cfg.MAX_OPEN_POSITIONS = SNIPER_MAX_OPEN_POSITIONS
                         try:
                             send_message(
-                                f"🎓 *V17 TRAINING COMPLETATO*\n\n"
+                                f"🎓 *V18 TRAINING COMPLETATO*\n\n"
                                 f"✅ {completed} trade completati\n"
                                 f"🎯 Passaggio a *Sniper Mode* — soglie alzate:\n"
                                 f"  • Fusion threshold: {SNIPER_FUSION_THRESHOLD}\n"
@@ -1028,10 +1028,10 @@ def main():
                 f"📊 Final stats: trades={stats['trade_count']} "
                 f"wr={stats['win_rate']:.1%} pnl={stats['total_pnl']:+.4f}"
             )
-            send_message("⏹️ V17 Agentic AI Trading System — STOPPED")
+            send_message("⏹️ V18 Agentic AI Trading System — STOPPED")
         except Exception as e:
             logger.error(f"Shutdown cleanup error: {e}")
-        logger.info("👋 V17 terminated gracefully")
+        logger.info("👋 V18 terminated gracefully")
         sys.exit(0)
 
     except Exception as e:
@@ -1046,7 +1046,7 @@ def main():
         except Exception as _uds_fatal_stop:
             logger.error(f"user_data_stream.stop on fatal error: {_uds_fatal_stop}")
         try:
-            send_message(f"🔴 V17 FATAL ERROR\n\n{str(e)[:300]}")
+            send_message(f"🔴 V18 FATAL ERROR\n\n{str(e)[:300]}")
         except Exception:
             pass
         sys.exit(1)

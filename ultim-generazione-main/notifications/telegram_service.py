@@ -1,5 +1,5 @@
 """
-Enhanced Telegram service for V17.
+Enhanced Telegram service for V18.
 Sends rich messages with agent reasoning, regime probabilities, and confidence.
 """
 import logging
@@ -60,7 +60,7 @@ def send_photo(image_bytes: bytes, caption: str = "",
 
 def test_connection() -> bool:
     """Test Telegram bot connection."""
-    result = send_message("🔧 V17 Agentic AI Trading System — connection test")
+    result = send_message("🔧 V18 Agentic AI Trading System — connection test")
     ok = result is not None and result.get("ok", False)
     if ok:
         logger.info("✅ Telegram connection OK")
@@ -287,7 +287,7 @@ def build_heartbeat_message(uptime_hours: int, uptime_minutes: int,
         skip_lines = "  • Nessuno"
 
     lines = [
-        f"🫀 *V17 HEARTBEAT*\n",
+        f"🫀 *V18 HEARTBEAT*\n",
         f"⏱ Uptime: {uptime_hours}h {uptime_minutes}m",
         f"📊 Candele processate: {processed:,}",
         f"📈 Segnali generati: {signals}",
@@ -310,7 +310,7 @@ def build_heartbeat_message(uptime_hours: int, uptime_minutes: int,
 def build_startup_message(n_symbols: int, n_hg: int, paper: bool) -> str:
     mode_str = "📄 PAPER TRADING" if paper else "⚡ LIVE TRADING"
     return (
-        f"🚀 *V17 Agentic AI Trading System — STARTED*\n\n"
+        f"🚀 *V18 Agentic AI Trading System — STARTED*\n\n"
         f"🤖 Multi-Agent System: ONLINE\n"
         f"{'📄' if paper else '⚡'} Mode: *{mode_str}*\n\n"
         f"✅ Divergenze: {n_symbols} simboli\n"
@@ -326,7 +326,7 @@ def build_stats_message(exec_stats: Dict[str, Any],
                          perf_summary: Dict[str, Any],
                          agent_report: Dict[str, Any]) -> str:
     lines = [
-        "📊 *V17 Performance Report*\n",
+        "📊 *V18 Performance Report*\n",
         f"💰 Balance: `{exec_stats.get('balance', 0):.2f}` USDT",
         f"📈 Total P&L: `{exec_stats.get('total_pnl', 0):+.4f}` ({exec_stats.get('pnl_pct', 0):+.2f}%)",
         f"🏆 Win Rate: `{perf_summary.get('win_rate', 0):.1%}` "

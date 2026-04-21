@@ -1,4 +1,6 @@
-from dashboard.app import DashboardState, create_dashboard_app
+from unittest.mock import MagicMock
+
+from dashboard.app import DashboardState, create_dashboard_app, start_dashboard_server
 
 
 def test_dashboard_root_renders():
@@ -11,7 +13,7 @@ def test_dashboard_root_renders():
 
     response = client.get("/")
     assert response.status_code == 200
-    assert b"V17 Control Room" in response.data
+    assert b"Sala di controllo V18" in response.data
     assert b"/api/state" in response.data
 
 
@@ -57,3 +59,22 @@ def test_dashboard_state_log_buffer_keeps_latest_items():
     assert logs[0]["message"] == "second"
     assert logs[1]["message"] == "third"
 
+
+def test_dashboard_server_uses_v18_default_port(monkeypatch):
+    run_mock = MagicMock()
+    app_mock = MagicMock(run=run_mock)
+    monkeypatch.setattr("dashboard.app.create_dashboard_app", lambda **_kwargs: app_mock)
+
+    start_dashboard_server(
+        state_provider=lambda: {},
+        positions_provider=lambda: [],
+        logs_provider=lambda: [],
+    )
+
+    run_mock.assert_called_once_with(
+        host="127.0.0.1",
+        port=5018,
+        debug=False,
+        use_reloader=False,
+        threaded=True,
+    )

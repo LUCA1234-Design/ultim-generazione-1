@@ -1,8 +1,11 @@
 from types import SimpleNamespace
 
 from notifications.telegram_service import build_early_exit_alert_message
+from notifications.telegram_service import build_heartbeat_message
 from notifications.telegram_service import build_pairs_signal_message
 from notifications.telegram_service import build_signal_message
+from notifications.telegram_service import build_startup_message
+from notifications.telegram_service import build_stats_message
 from agents.base_agent import AgentResult
 
 
@@ -62,3 +65,27 @@ def test_build_signal_message_includes_kelly_size_and_onchain_alert():
     assert "2.5000" in msg
     assert "Leverage" in msg
     assert "On-Chain" in msg
+
+
+def test_core_telegram_templates_are_rebranded_to_v18():
+    heartbeat = build_heartbeat_message(
+        uptime_hours=1,
+        uptime_minutes=2,
+        processed=10,
+        signals=1,
+        open_positions=0,
+        balance=1000.0,
+        risk_blocked=False,
+        skip_reasons={},
+        fusion_threshold=0.55,
+    )
+    startup = build_startup_message(n_symbols=5, n_hg=2, paper=True)
+    report = build_stats_message(
+        exec_stats={"balance": 1000.0, "total_pnl": 1.0, "pnl_pct": 0.1},
+        perf_summary={"win_rate": 0.5, "wins": 1, "losses": 1, "sharpe": 0.1},
+        agent_report={},
+    )
+
+    assert "V18 HEARTBEAT" in heartbeat
+    assert "V18 Agentic AI Trading System — STARTED" in startup
+    assert "V18 Performance Report" in report
