@@ -87,7 +87,7 @@ def test_tick_sends_telegram_when_weights_are_updated(monkeypatch):
 
     send_mock.assert_called_once()
     msg = send_mock.call_args[0][0]
-    assert "🧠 *AUTO-APPRENDIMENTO V17*" in msg
+    assert "🧠 *AUTO-APPRENDIMENTO V18*" in msg
     assert "• pattern: 0.70" in msg
     assert "• risk: 1.23" in msg
 
@@ -123,7 +123,6 @@ def test_auto_tune_params_sends_telegram_when_threshold_changes(monkeypatch):
     assert engine._fusion._threshold == 0.62
     send_mock.assert_called_once()
     msg = send_mock.call_args[0][0]
-    assert "🔧 *AUTO-TUNE V17*" in msg
+    assert "🔧 *AUTO-TUNE V18*" in msg
     assert "Win Rate recente: 10.0%" in msg
     assert "Soglia precisione: 0.600 ➡️ 0.620" in msg
-

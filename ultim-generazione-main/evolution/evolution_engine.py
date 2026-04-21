@@ -225,7 +225,7 @@ class EvolutionEngine:
                         f"• {agent}: {weight:.2f}" for agent, weight in weight_map.items()
                     )
                     msg = (
-                        "🧠 *AUTO-APPRENDIMENTO V17*\n"
+                        "🧠 *AUTO-APPRENDIMENTO V18*\n"
                         "I pesi degli agenti sono stati ricalibrati:\n"
                         f"{weights_lines}"
                     )
@@ -356,7 +356,7 @@ class EvolutionEngine:
                     f"threshold {{current:.3f}} → {{new_threshold:.3f}}"
                 )
                 msg = (
-                    "🔧 *AUTO-TUNE V17*\n"
+                    "🔧 *AUTO-TUNE V18*\n"
                     f"Win Rate recente: {win_rate:.1%}\n"
                     f"Soglia precisione: {current:.3f} ➡️ {new_threshold:.3f}"
                 )

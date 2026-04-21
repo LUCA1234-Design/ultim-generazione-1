@@ -1,5 +1,5 @@
 """
-V17 Agentic AI Trading System — Configuration
+V18 Agentic AI Trading System — Configuration
 All settings in V16 style: os.getenv with hardcoded fallbacks.
 """
 import logging
@@ -164,7 +164,7 @@ TELEGRAM_TEST_ON_START = True
 # DATABASE
 # ============================================================
 
-DB_PATH = "v17_experience.db"
+DB_PATH = "v18_experience.db"
 
 # ============================================================
 # REGIME AGENT

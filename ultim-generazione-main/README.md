@@ -1,4 +1,4 @@
-# ultim-generazione — V17 Agentic AI Trading System
+# ultim-generazione — V18 Agentic AI Trading System
 
 Evolution of the V16 "Cecchino Istituzionale" monolithic bot into a modular,
 adaptive, self-learning multi-agent trading system for Binance Futures.
@@ -61,7 +61,7 @@ python main.py
 When running locally, the Phase 9 control room dashboard is available at:
 
 ```text
-http://127.0.0.1:5000
+http://127.0.0.1:5018
 ```
 
 Set environment variables (or use the hardcoded V16-style fallbacks):
@@ -74,7 +74,7 @@ export LM_STUDIO_URL=http://localhost:1234/v1
 
 ## Key Improvements Over V16
 
-| Feature | V16 | V17 |
+| Feature | V16 | V18 |
 |---|---|---|
 | Architecture | 1500-line monolith | Modular multi-agent |
 | Market regime | None | GaussianMixture (3 regimes) |

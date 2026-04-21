@@ -20,7 +20,7 @@ _DASHBOARD_HTML = """
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>V17 Control Room</title>
+  <title>Sala di controllo V18</title>
   <style>
     :root { --bg:#0b0f14; --card:#151c24; --muted:#93a4b7; --text:#e8edf3; --ok:#26d07c; --bad:#ff5d73; --accent:#5fa8ff; }
     body { margin:0; font-family:Inter,Segoe UI,Arial,sans-serif; background:var(--bg); color:var(--text); }
@@ -40,7 +40,7 @@ _DASHBOARD_HTML = """
 </head>
 <body>
   <div class="wrap">
-    <h1>🧠 V17 Control Room</h1>
+    <h1>🧠 Sala di controllo V18</h1>
 
     <div class="grid">
       <div class="card"><div class="label">System</div><div class="value" id="systemStatus">-</div></div>
@@ -196,7 +196,7 @@ def start_dashboard_server(
     positions_provider: Callable[[], List[Dict[str, Any]]],
     logs_provider: Callable[[], List[Dict[str, Any]]],
     host: str = "127.0.0.1",
-    port: int = 5000,
+    port: int = 5018,
 ) -> None:
     """Run the local dashboard server."""
     app = create_dashboard_app(
@@ -206,4 +206,3 @@ def start_dashboard_server(
     )
     logger.info(f"🌐 Dashboard available at http://{host}:{port}")
     app.run(host=host, port=port, debug=False, use_reloader=False, threaded=True)
-
